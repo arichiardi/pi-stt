@@ -1,6 +1,6 @@
 /**
- * Contexto de início (realtime_context.rs): orçamento e ordem cronológica.
- * Rodar: node --test --experimental-strip-types ~/.pi/agent/extensions/voice/tests/startup-context.test.ts
+ * Startup context (realtime_context.rs): budget and chronological order.
+ * Run: node --test --experimental-strip-types ~/.pi/agent/extensions/voice/tests/startup-context.test.ts
  */
 import assert from "node:assert/strict";
 import { test } from "node:test";

@@ -1,7 +1,7 @@
 /**
- * Testes offline do protocolo realtime V2 (ADR 0002): parser de eventos, payload
- * `session.update` e instruções.
- * Rodar: node --test --experimental-strip-types ~/.pi/agent/extensions/voice/tests/realtime.test.ts
+ * Offline tests for the realtime V2 protocol (ADR 0002): event parser,
+ * `session.update` payload, and instructions.
+ * Run: node --test --experimental-strip-types ~/.pi/agent/extensions/voice/tests/realtime.test.ts
  */
 
 import assert from "node:assert/strict";
@@ -42,7 +42,7 @@ test("lixo não vira evento", () => {
 	assert.equal(parseRealtimeEvent({ no: "type" }), null);
 });
 
-test("payload V2: conversa com resposta automática e VAD do Codex", () => {
+test("payload V2: conversa com resposta automática e VAD do servidor", () => {
 	const session = buildSessionUpdate(DEFAULT_SETTINGS, "instr") as any;
 	assert.equal(session.type, "session.update");
 	assert.equal(session.session.type, "realtime");
@@ -57,10 +57,10 @@ test("payload V2: conversa com resposta automática e VAD do Codex", () => {
 	assert.equal(session.session.audio.output.voice, DEFAULT_SETTINGS.voice);
 	assert.equal(session.session.tool_choice, "auto");
 	assert.equal(session.session.instructions, "instr");
-	assert.equal(session.session.model, undefined, "modelo vai na URL, como no Codex");
+	assert.equal(session.session.model, undefined, "modelo vai na URL");
 });
 
-test("payload V2 declara background_agent e remain_silent com os nomes do Codex", () => {
+test("payload V2 declara background_agent e remain_silent com os nomes da API", () => {
 	const tools = (buildSessionUpdate(DEFAULT_SETTINGS, "x") as any).session.tools as Array<any>;
 	assert.deepEqual(
 		tools.map((tool) => tool.name),
@@ -70,11 +70,19 @@ test("payload V2 declara background_agent e remain_silent com os nomes do Codex"
 	assert.equal(tools[0].parameters.additionalProperties, false);
 });
 
+test("vad cliente ativo => turn_detection null; off => server_vad preservado", () => {
+	const client = { ...DEFAULT_SETTINGS, vad: { ...DEFAULT_SETTINGS.vad, engine: "webrtc_fvad" as const } };
+	assert.equal((buildSessionUpdate(client, "x") as any).session.audio.input.turn_detection, null);
+	const rms = { ...DEFAULT_SETTINGS, vad: { ...DEFAULT_SETTINGS.vad, engine: "rms" as const } };
+	assert.equal((buildSessionUpdate(rms, "x") as any).session.audio.input.turn_detection, null);
+	assert.equal((buildSessionUpdate(DEFAULT_SETTINGS, "x") as any).session.audio.input.turn_detection.type, "server_vad");
+});
+
 test("modelo default prioriza custo-benefício", () => {
 	assert.equal(DEFAULT_SETTINGS.model, "gpt-realtime-2.1-mini");
 });
 
-test("instruções: backend prompt do Codex, com contexto de início quando houver", () => {
+test("instruções: backend prompt, com contexto de início quando houver", () => {
 	const prompt = backendPrompt("Igor");
 	assert.ok(prompt.startsWith("## Identity, tone, and role"));
 	assert.ok(prompt.includes("The user's name is Igor."));
@@ -83,7 +91,7 @@ test("instruções: backend prompt do Codex, com contexto de início quando houv
 	assert.equal(buildInstructions(prompt, "Contexto X"), `${prompt.trim()}\n\nContexto X`);
 });
 
-test("developer items de início e fim vêm dos templates do Codex", () => {
+test("developer items de início e fim vêm dos templates", () => {
 	assert.ok(START_INSTRUCTIONS.startsWith("Realtime conversation started."));
 	assert.ok(END_INSTRUCTIONS.startsWith("Realtime conversation ended."));
 	const item = developerItem("oi") as any;

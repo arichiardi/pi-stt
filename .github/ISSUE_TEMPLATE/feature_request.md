@@ -1,11 +1,11 @@
 ---
-name: Sugestão
-about: Proposta de melhoria
+name: Suggestion
+about: Improvement proposal
 labels: enhancement
 ---
 
-**Problema que resolve**
+**Problem it solves**
 
-**Proposta**
+**Proposal**
 
-**Alternativas consideradas**
+**Alternatives considered**

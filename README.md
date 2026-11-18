@@ -1,10 +1,9 @@
-# pi-stt — speech-to-text for pi
+# pi-stt - speech-to-text for pi
 
 Speech-to-text for the [Pi](https://pi.dev) coding agent. Today it gives you
-full-duplex realtime voice, the same design as the `/voice` mode of
-[openai/codex](https://github.com/openai/codex). Over time it will also add
-transcription agent tools (audio files, voice notes) so Pi can transcribe on
-demand, not only in a live session.
+full-duplex realtime voice over the OpenAI Realtime API (`/v1/realtime`). Over
+time it will also add transcription agent tools (audio files, voice notes) so Pi
+can transcribe on demand, not only in a live session.
 
 > **Origin and credit.** This project started as a fork of
 > [`pi-voice-realtime`](https://github.com/IgorGuariroba/pi-voice-realtime) and
@@ -13,7 +12,7 @@ demand, not only in a live session.
 > It is MIT licensed. See [Origin and attribution](#origin-and-attribution).
 
 ```
-/voice
+/stt-live
   → opens a realtime session (microphone open, server VAD)
   → you speak; the voice model answers by voice
   → a work request → background_agent → a normal Pi agent turn
@@ -27,7 +26,7 @@ demand, not only in a live session.
 - **Next:** client-side VAD so the project works against self-hosted
   `/v1/realtime` servers such as llama.cpp, which return `turn_detection: null`
   and provide no server-side VAD.
-- **Later:** transcription agent tools — transcribe a file, a voice note, or a
+- **Later:** transcription agent tools - transcribe a file, a voice note, or a
   meeting on demand, outside a live session.
 
 ## Demo
@@ -48,25 +47,25 @@ Requirements:
 pi install npm:@ar-llm/pi-stt
 ```
 
-Restart Pi or run `/reload`, then run `/voice`.
+Restart Pi or run `/reload`, then run `/stt-live`.
 To update an existing npm install, run `pi update --extensions`.
 
 ## Usage
 
 | Command / key | Effect |
 |---|---|
-| `/voice` or `/voice start` | start the session (idempotent) |
-| `/voice stop` | end the session and release mic/player |
-| `/voice mute` / `unmute` | microphone (does not affect playback) |
+| `/stt-live` or `/stt-live start` | start the session (idempotent) |
+| `/stt-live stop` | end the session and release mic/player |
+| `/stt-live mute` / `unmute` | microphone (does not affect playback) |
 | `f9` | toggle mute |
-| `/voice settings` | choose the voice; ↑↓ plays a preview (sample is generated once and cached in `~/.pi/agent/voice/previews/`) (applies to the next session) |
-| `/voice status` | state, voice, model, credential, devices |
+| `/stt-live settings` | choose the voice; ↑↓ plays a preview (sample is generated once and cached in `<agentDir>/voice/previews/`) (applies to the next session) |
+| `/stt-live status` | state, voice, model, credential, devices |
 
 UI: a widget above the editor (`voice ● listening` / `mic ▁ ▂ ▄ ▆ █ ▅ ▃ ▂ ▁ ▁` /
-`f9 mute` / `/voice stop`) plus a line in the native footer, which keeps showing
+`f9 mute` / `/stt-live stop`) plus a line in the native footer, which keeps showing
 tokens/git/model. Consolidated speech appears in history and enters the agent
 context as a `[USER]` message without triggering a turn (`sendMessage` without
-`triggerTurn`), the same way Codex records a `TranscriptSegment`.
+`triggerTurn`), so it enters the model context as a `TranscriptSegment`.
 
 ## Credential
 
@@ -74,19 +73,32 @@ The normal path is Pi's own login. The extension reads the same credential:
 
 ```
 /login openai
-/voice status   # credential: ok
+/stt-live status   # credential: ok
 ```
 
 Precedence: `OPENAI_API_KEY` → `PI_VOICE_API_KEY` → the `openai` entry in
-`~/.pi/agent/auth.json` (where `/login openai` writes). The environment
+`<agentDir>/auth.json` (where `/login openai` writes). `agentDir` is
+`$PI_CODING_AGENT_DIR` or `~/.config/pi/agent`. The environment
 variables are for temporary use or CI.
 
 ## Configuration
 
-`~/.pi/agent/voice.json` (created when you choose a voice in `/voice settings`):
+`<agentDir>/ar-llm/stt.json` (created when you choose a voice in `/stt-live settings`):
 
 ```json
-{ "voice": "marin", "model": "gpt-realtime-2.1-mini", "muteOnStart": false }
+{
+  "voice": "marin",
+  "model": "gpt-realtime-2.1-mini",
+  "muteOnStart": false,
+  "vad": {
+    "engine": "off",
+    "mode": "aggressive",
+    "onsetMs": 60,
+    "hangoverMs": 700,
+    "prefillMs": 450,
+    "commitResponse": true
+  }
+}
 ```
 
 The current AEC path uses the default PulseAudio/PipeWire devices. Remove
@@ -106,38 +118,78 @@ the processes and request module unload. If AEC does not load, the session does
 not fall back to raw capture.
 
 macOS/Windows are not supported by the current AEC path. The older
-backend-selection functions remain in `src/audio.ts`, but `/voice` does not use them.
+backend-selection functions remain in `src/audio.ts`, but `/stt-live` does not use them.
 
-This backend uses WebRTC AEC from the audio server. It is not the same Sonora
-helper as Codex. Creating the routes does not prove echo reduction. Acoustic
+This backend uses WebRTC AEC from the audio server. It is not a Sonora-style
+helper. Creating the routes does not prove echo reduction. Acoustic
 measurement and speaker validation are still pending.
 
-## Codex fidelity (what differs, and why)
+## Client VAD (turn detection)
 
-| Codex | Here | Reason |
+Self-hosted servers such as `llama.cpp` `/v1/realtime` report
+`turn_detection: null`. They do not detect turn boundaries. The client decides
+the boundary with a Voice Activity Detection (VAD) gate. This is off by default.
+OpenAI keeps server VAD when `engine` is `off`.
+
+Pick a `vad.engine`:
+
+| Engine | What it is | Cost |
 |---|---|---|
-| `/v1/realtime?intent=quicksilver` + ChatGPT auth | `/v1/realtime` + API key | `intent=quicksilver` is not public |
-| transport auth | `ws` + `Authorization` | GA does not send `OpenAI-Beta`; see below |
-| WebRTC (SDP/ICE) | WebSocket PCM16 | same model and same VAD; avoids native `wrtc` |
-| Rust helper + Sonora AEC + GStreamer + Opus | PulseAudio/PipeWire WebRTC AEC + `parec`/`pacat` | Linux backend, no proven acoustic parity |
-| V2 handoff (`background_agent`, `remain_silent`) | same tools, same return texts | parity (ADR 0002) |
-| `codex-realtime-webrtc` module | `src/socket.ts` + `src/realtime.ts` + `src/audio.ts` | — |
+| `webrtc_fvad` | WebRTC VAD (libfvad, GMM) through `@ozymandiasthegreat/vad` (WASM). The mobile/Android algorithm. | ~53 KB, no model download |
+| `rms` | Pure-TypeScript RMS gate. The fallback. | zero extra dependency |
+| `off` | No client VAD. Server VAD is kept (OpenAI default). | none |
+
+The gate resamples 24 kHz capture to 16 kHz. It scores 10 ms frames. A turn
+opens after `onsetMs` of speech. It closes after `hangoverMs` of silence. That
+silence is the commit point. `prefillMs` keeps a short pre-roll so the first
+syllable is not lost. `commitResponse` sends `response.create` after each
+`input_audio_buffer.commit`.
+
+When a client engine is active, the session update sends `turn_detection: null`.
+This stops double turn boundaries. The gate drives barge-in locally.
+
+The main engine falls back to `rms` with a warning if the WASM module does not
+load. A scorer failure makes the gate fail open: it forwards all audio and warns
+once. The microphone never freezes.
+
+`@ozymandiasthegreat/vad` ships its WASM in the npm package. `npm install` brings
+it. `brew install libfvad` does not exist on macOS. The WASM path is used in
+production. `arecord` AEC capture is Linux, so validate VAD on Linux with
+`llama.cpp`. See `docs/plan-implementation.md`.
+
+Set a non-off engine to try it:
+
+```json
+{ "vad": { "engine": "webrtc_fvad", "mode": "aggressive" } }
+```
+
+## Implementation notes (what and why)
+
+| Aspect | This extension | Why |
+|---|---|---|
+| Auth | `/v1/realtime` + API key | ChatGPT `intent=quicksilver` is not public |
+| Transport auth | `ws` + `Authorization` | GA does not send `OpenAI-Beta`; see below |
+| Transport | WebSocket PCM16 | same model and same VAD; avoids native `wrtc` |
+| Audio / AEC | PulseAudio/PipeWire WebRTC AEC + `parec`/`pacat` | Linux backend; acoustic parity pending |
+| Turn detection | Client VAD (libfvad/RMS) when `vad.engine` is not `off`; server VAD when off | self-hosted servers report `turn_detection: null` |
+| Handoff | `background_agent`, `remain_silent` tools, fixed return texts | delegation + silence (ADR 0002) |
+| Modules | `src/socket.ts` + `src/realtime.ts` + `src/audio.ts` | - |
 
 ### Transport
 
 `import("ws")` fails from the extension directory, but
 `createRequire(process.argv[1])("ws")` works: `process.argv[1]` is the Pi
-entrypoint, which owns the `node_modules` where `ws` lives. This makes the
-transport match Codex (headers). If that resolution fails (running outside Pi),
+entrypoint, which owns the `node_modules` where `ws` lives. This keeps the GA
+handshake (headers). If that resolution fails (running outside Pi),
 the extension falls back to Node's global `WebSocket`, which **does not** accept
 headers, and then swaps the API key for an ephemeral client secret in a
-subprotocol. The active mode shows in `/voice status`:
+subprotocol. The active mode shows in `/stt-live status`:
 `transport: ws|global-websocket · auth: header|ephemeral-subprotocol`.
 
 ### Payload dialect
 
-Only the GA format (Codex V2 `session.update`). The beta dialect was removed: V2
-does not use it. `session.update` errors are reported, with no resubmit in a
+Only the GA format (`session.update`). The beta dialect was removed: it is not
+used. `session.update` errors are reported, with no resubmit in a
 different format.
 
 ### OpenRouter does not serve realtime mode
@@ -148,7 +200,8 @@ duplex session endpoint (`/v1/realtime`). Without it there is no continuous VAD,
 barge-in, or streamed spoken answer. Using OpenRouter would require a different
 mode (record → transcribe → agent → TTS), which is out of v1 scope.
 
-What is faithful to Codex V2: spoken answer from the model itself, delegation as
+What the current implementation supports: spoken answer from the model itself,
+delegation as
 `background_agent` with a `<realtime_delegation>` envelope, progress and result
 as `[BACKEND]`, `function_call_output` on completion and on steer, a one-at-a-time
 `response.create` queue, barge-in with `conversation.item.truncate`, speech in
@@ -182,12 +235,12 @@ speech → agent task → spoken answer.
 ## Known limits
 
 - Device picker and persistent captions are deferred to v2 (scope decision).
-- No reconnect phase: a WebSocket drop ends the session (Codex: `reconnect.rs`).
+- No reconnect phase: a WebSocket drop ends the session (no reconnect in v1).
 - No transcript-tail-flush with a turn: speech goes to history immediately, so no
   buffer remains at close.
-- Without an OpenAI key, `/voice` warns and opens no session — there is no local
+- Without an OpenAI key, `/stt-live` warns and opens no session - there is no local
   fallback.
-- The session keeps the microphone open until `/voice stop` (like Codex), which
+- The session keeps the microphone open until `/stt-live stop`, which
   consumes audio even in silence.
 
 ## Origin and attribution
@@ -203,4 +256,4 @@ This project is a fork, and it evolves that fork.
   [LICENSE](LICENSE) file is kept as in upstream.
 
 Changes in this fork build on top of that work. The upstream README and ADRs
-remain the source of truth for the Codex-parity design.
+remain the source of truth for the design and provenance.

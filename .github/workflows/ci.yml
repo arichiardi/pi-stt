@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   unit:
-    name: testes unitários (bloqueante)
+    name: unit tests (blocking)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -20,9 +20,9 @@ jobs:
       - run: npm run test:unit
 
   integration:
-    # Pendente: tests/integration.test.ts espera injeção de dependências em index.ts
-    # que ainda não existe. Remova continue-on-error quando o seam for implementado.
-    name: integração (não bloqueante, pendente)
+    # Pending: tests/integration.test.ts expects dependency injection in index.ts
+    # that does not exist yet. Remove continue-on-error once the seam is implemented.
+    name: integration (non-blocking, pending)
     runs-on: ubuntu-latest
     continue-on-error: true
     steps:

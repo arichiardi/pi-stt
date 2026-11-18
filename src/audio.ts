@@ -1,10 +1,10 @@
 /**
- * Captura e reprodução via binários de sistema, em PCM16 mono 24 kHz.
+ * Capture and playback through system binaries, in PCM16 mono 24 kHz.
  *
- * Fidelidade ao Codex: o helper nativo dele fala Opus/RTP sobre GStreamer.
- * Aqui o transporte é PCM16 cru (formato que a API Realtime aceita direto), com
- * os mesmos limites de frame (20 ms) e o mesmo comportamento de mute: ao mutar,
- * descartamos o que ainda estava no buffer de captura.
+ * Mirrors the Codex realtime design. Its native helper speaks Opus/RTP over
+ * GStreamer. Here the transport is raw PCM16 (a format the Realtime API accepts
+ * directly), with the same frame size (20 ms) and the same mute behavior: on mute, we drop what was
+ * still in the capture buffer.
  */
 
 import { spawn, type ChildProcessByStdio } from "node:child_process";
@@ -12,7 +12,7 @@ import type { Readable, Writable } from "node:stream";
 import { SAMPLE_RATE } from "./config.ts";
 
 export const BYTES_PER_SAMPLE = 2;
-/** 20 ms por frame, como o Opus do Codex. */
+/** 20 ms per frame (Opus frame size). */
 export const FRAME_BYTES = Math.floor((SAMPLE_RATE * 20) / 1000) * BYTES_PER_SAMPLE;
 
 export interface Backend {
@@ -20,7 +20,7 @@ export interface Backend {
 	args: string[];
 }
 
-/** Recomenda um backend de captura por SO. `device` é opcional. */
+/** Picks a capture backend per OS. `device` is optional. */
 export function captureBackend(
 	platform: NodeJS.Platform = process.platform,
 	device?: string,
@@ -74,7 +74,7 @@ export function captureBackend(
 	return { command: "arecord", args };
 }
 
-/** Recomenda um backend de reprodução por SO. */
+/** Picks a playback backend per OS. */
 export function playBackend(platform: NodeJS.Platform = process.platform, device?: string): Backend {
 	if (platform === "darwin") {
 		return {
@@ -123,8 +123,8 @@ export function playBackend(platform: NodeJS.Platform = process.platform, device
 }
 
 /**
- * Nível RMS normalizado (0..1) de um bloco PCM16LE mono.
- * Usado pelo medidor de microfone do rodapé.
+ * Normalized RMS level (0..1) of a PCM16LE mono block.
+ * Used by the footer microphone meter.
  */
 export function rmsLevel(pcm: Buffer): number {
 	const samples = Math.floor(pcm.length / BYTES_PER_SAMPLE);
@@ -138,9 +138,9 @@ export function rmsLevel(pcm: Buffer): number {
 }
 
 /**
- * Acumula bytes e devolve frames de tamanho fixo, guardando o resto.
- * Necessário porque `arecord`/`ffmpeg` entregam blocos de tamanho arbitrário
- * e a API Realtime espera base64 de frames contínuos.
+ * Accumulates bytes and returns fixed size frames, keeping the rest.
+ * Needed because `arecord`/`ffmpeg` deliver blocks of arbitrary size
+ * and the Realtime API expects base64 of continuous frames.
  */
 export class FrameChunker {
 	private remainder: Buffer = Buffer.alloc(0);
@@ -162,7 +162,7 @@ export class FrameChunker {
 		return frames;
 	}
 
-	/** Descarta o parcial acumulado (usado ao mutar, como o Codex invalida buffers). */
+	/** Drops the accumulated partial (used on mute, by invalidating buffers). */
 	reset(): void {
 		this.remainder = Buffer.alloc(0);
 	}
@@ -205,7 +205,7 @@ export class Recorder {
 		child.on("exit", (code) => {
 			this.child = undefined;
 			const error = stderr.trim();
-			// SIGTERM intencional (stop) não é falha: o arecord sai com 1 nesse caso.
+			// Intentional SIGTERM (stop) is not a failure: arecord exits with 1 in this case.
 			if (!this.stopping && code && code !== 0) {
 				this.handlers.onError(
 					new Error(`${backend.command} saiu com código ${code}${error ? `: ${error}` : ""}`),
@@ -221,7 +221,7 @@ export class Recorder {
 
 	setMuted(muted: boolean): void {
 		this.muted = muted;
-		// Como o Codex ao mutar: descarta o buffer pendente para não enviar áudio pré-mute.
+		// On mute: drop the pending buffer so no pre-mute audio is sent.
 		if (muted) this.chunker.reset();
 	}
 
@@ -239,7 +239,7 @@ export class Recorder {
 	}
 }
 
-/** Player com fila simples; `stop()` interrompe a fala em andamento (barge-in). */
+/** Player with a simple queue; `stop()` interrupts speech in progress (barge-in). */
 export class Player {
 	private child: ChildProcessByStdio<Writable, null, Readable> | undefined;
 	private started = false;
@@ -280,7 +280,7 @@ export class Player {
 		child?.stdin.write(pcm);
 	}
 
-	/** Corta o áudio imediatamente (usado quando o usuário começa a falar). */
+	/** Cuts audio immediately (used when the user starts speaking). */
 	stop(): void {
 		const child = this.child;
 		this.child = undefined;

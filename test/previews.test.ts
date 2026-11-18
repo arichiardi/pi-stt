@@ -1,4 +1,4 @@
-/** Testes offline das prévias de voz: cache, erro da API e formato da requisição. */
+/** Offline tests for voice previews: cache, API error, and request format. */
 import assert from "node:assert/strict";
 import { existsSync, mkdtempSync, readFileSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";

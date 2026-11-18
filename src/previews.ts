@@ -1,16 +1,16 @@
 /**
- * Prévias de voz para o seletor de `/voice settings`.
+ * Voice previews for the `/stt-live settings` picker.
  *
- * Gera uma amostra curta por voz via `/v1/audio/speech` (PCM 24 kHz mono, o
- * mesmo formato do player) e guarda em cache em `~/.pi/agent/voice/previews/`.
- * A geração acontece só na primeira vez que a voz é ouvida; depois é leitura de disco.
+ * Generates a short sample per voice via `/v1/audio/speech` (PCM 24 kHz mono,
+ * the same format as the player) and caches it under `<agentDir>/voice/previews/`.
+ * Generation runs only the first time a voice is heard; after that it reads from disk.
  */
 
 import { spawn, type ChildProcess } from "node:child_process";
 import { createReadStream, existsSync, mkdirSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { playBackend } from "./audio.ts";
-import { API_BASE, voiceDir, type VoiceName } from "./config.ts";
+import { API_BASE, agentDir, type VoiceName } from "./config.ts";
 
 export const PREVIEW_MODEL = "gpt-4o-mini-tts";
 export const PREVIEW_TEXT = "Oi, eu sou a sua voz da conversa. Assim eu vou soar.";
@@ -18,7 +18,7 @@ export const PREVIEW_TEXT = "Oi, eu sou a sua voz da conversa. Assim eu vou soar
 export type FetchLike = (url: string, init: RequestInit) => Promise<Response>;
 
 export function previewDir(): string {
-	return join(voiceDir(), "voice", "previews");
+	return join(agentDir(), "voice", "previews");
 }
 
 export function previewPath(voice: VoiceName, dir: string = previewDir()): string {
@@ -26,9 +26,9 @@ export function previewPath(voice: VoiceName, dir: string = previewDir()): strin
 }
 
 /**
- * Garante que a amostra da voz existe em disco e devolve o caminho.
- * Escreve em arquivo temporário e renomeia, para não deixar cache pela metade.
- * Lança erro (com a mensagem da API) se a voz não puder ser gerada.
+ * Ensures the voice sample exists on disk and returns the path.
+ * Writes a temp file and renames it, so the cache is never half written.
+ * Throws (with the API message) if the voice cannot be generated.
  */
 export async function ensurePreview(
 	voice: VoiceName,
@@ -65,8 +65,8 @@ export async function ensurePreview(
 }
 
 /**
- * Toca um arquivo PCM pelo backend de saída. Devolve o processo para que o
- * chamador possa interrompê-lo quando o cursor mudar de voz.
+ * Plays a PCM file through the output backend. Returns the process so the
+ * caller can stop it when the cursor moves to another voice.
  */
 export function playPreviewFile(path: string, platform: NodeJS.Platform = process.platform): ChildProcess {
 	const backend = playBackend(platform);

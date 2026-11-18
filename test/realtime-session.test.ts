@@ -1,9 +1,9 @@
 /**
- * Regressão: o microfone enviava áudio enquanto o WebSocket ainda estava em
- * CONNECTING, e `send()` lançava exceção que derrubava o pi.
- * Rodar: node --test --experimental-strip-types ~/.pi/agent/extensions/voice/tests/
+ * Regression: the microphone sent audio while the WebSocket was still in
+ * CONNECTING, and `send()` threw an exception that took pi down.
+ * Run: node --test --experimental-strip-types ~/.pi/agent/extensions/voice/tests/
  *
- * O socket falso reproduz o `ws`: `send()` lança fora do estado OPEN.
+ * The fake socket reproduces `ws`: `send()` throws outside the OPEN state.
  */
 
 import assert from "node:assert/strict";
@@ -50,7 +50,7 @@ function fakeTransport() {
 			readyState = OPEN;
 			handlers.onOpen();
 		},
-		/** Socket passa a CLOSED sem que o evento de close tenha chegado. */
+		/** The socket becomes CLOSED before the close event arrives. */
 		drop() {
 			readyState = CLOSED;
 		},
@@ -63,7 +63,7 @@ function fakeTransport() {
 	};
 }
 
-/** Eventos de rede são assíncronos: dá uma volta ao event loop antes de disparar `open`. */
+/** Network events are async: run one event loop turn before firing `open`. */
 const tick = () => new Promise((r) => setImmediate(r));
 
 function makeSession(transport: ReturnType<typeof fakeTransport>, overrides: { onClose?: (r: string) => void } = {}) {
@@ -175,7 +175,7 @@ test("falha de envio depois de pronto encerra a voz sem lançar", async () => {
 	transport.message({ type: "session.updated" });
 	await connecting;
 
-	// Simula o socket caindo para CLOSED sem o evento de close ter chegado ainda.
+	// Simulate the socket dropping to CLOSED before the close event arrived.
 	transport.drop();
 	assert.doesNotThrow(() => session.appendAudio(audio));
 	assert.doesNotThrow(() => session.appendAudio(audio));
@@ -212,7 +212,7 @@ async function readySession() {
 
 test("barge-in trunca o áudio já emitido e não envia response.cancel", async () => {
 	const { transport } = await readySession();
-	// 48 000 bytes PCM16 a 24 kHz = 1000 ms de áudio.
+	// 48 000 bytes of PCM16 at 24 kHz = 1000 ms of audio.
 	transport.message({ type: "response.output_audio.delta", item_id: "item_9", delta: Buffer.alloc(48_000).toString("base64") });
 	transport.message({ type: "input_audio_buffer.speech_started" });
 	const truncate = transport.sent.map((s) => JSON.parse(s)).find((e) => e.type === "conversation.item.truncate");
@@ -238,7 +238,7 @@ test("response.create enquanto há resposta ativa é adiado até response.done (
 	assert.deepEqual(next, [{ type: "response.create" }]);
 });
 
-test("function_call_output e item [BACKEND] seguem o formato do Codex", async () => {
+test("function_call_output e item [BACKEND] seguem o formato esperado", async () => {
 	const { transport, session } = await readySession();
 	const before = transport.sent.length;
 	session.functionCallOutput("call_1", "ok");
@@ -247,4 +247,46 @@ test("function_call_output e item [BACKEND] seguem o formato do Codex", async ()
 	assert.deepEqual(out, { type: "conversation.item.create", item: { type: "function_call_output", call_id: "call_1", output: "ok" } });
 	assert.equal(backend.item.role, "user");
 	assert.equal(backend.item.content[0].text, "[BACKEND] resultado");
+});
+
+test("commit envia input_audio_buffer.commit so quando pronto", async () => {
+	const transport = fakeTransport();
+	const { session } = makeSession(transport);
+	void session.connect().catch(() => {});
+	session.commit();
+	assert.equal(transport.sent.length, 0, "nada antes de pronto");
+	await tick();
+	transport.open();
+	transport.message({ type: "session.updated" });
+	session.commit();
+	const events = transport.sent.map((s) => JSON.parse(s));
+	assert.deepEqual(events.at(-1), { type: "input_audio_buffer.commit" });
+});
+
+test("commitAndRespond envia commit e response.create nessa ordem", async () => {
+	const { transport, session } = await readySession();
+	const before = transport.sent.length;
+	session.commitAndRespond();
+	const sent = transport.sent.slice(before).map((s) => JSON.parse(s));
+	assert.deepEqual(sent, [{ type: "input_audio_buffer.commit" }, { type: "response.create" }]);
+});
+
+test("commitAndRespond com commitResponse=false envia so o commit", async () => {
+	const transport = fakeTransport();
+	const events: VoiceEvent[] = [];
+	const session = new RealtimeSession({
+		apiKey: "test-key",
+		settings: { ...DEFAULT_SETTINGS, vad: { ...DEFAULT_SETTINGS.vad, engine: "rms", commitResponse: false } },
+		openSocket: transport.openSocket,
+		onEvent: (e) => events.push(e),
+	});
+	const connecting = session.connect();
+	await tick();
+	transport.open();
+	transport.message({ type: "session.updated" });
+	await connecting;
+	const before = transport.sent.length;
+	session.commitAndRespond();
+	const sent = transport.sent.slice(before).map((s) => JSON.parse(s));
+	assert.deepEqual(sent, [{ type: "input_audio_buffer.commit" }]);
 });

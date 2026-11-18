@@ -1,9 +1,9 @@
 /**
- * Integração de index.ts com contrato mockado do pi, socket realtime, microfone e player.
- * Cobre o ciclo do handoff da V2 (ADR 0002): background_agent, steer, remain_silent,
- * resultado [BACKEND] + function_call_output + response.create, histórico sem turno
- * e contexto de início.
- * Rodar: node --test --experimental-strip-types ~/.pi/agent/extensions/voice/tests/integration.test.ts
+ * Integration of index.ts with a mocked pi contract, realtime socket, microphone and player.
+ * Covers the V2 handoff loop (ADR 0002): background_agent, steer, remain_silent,
+ * [BACKEND] result + function_call_output + response.create, history without a turn,
+ * and the start context.
+ * Run: node --test --experimental-strip-types ~/.pi/agent/extensions/voice/tests/integration.test.ts
  */
 import assert from "node:assert/strict";
 import { register } from "node:module";
@@ -12,6 +12,8 @@ import { afterEach, beforeEach, test } from "node:test";
 register("./stub-hooks.mjs", import.meta.url);
 const { default: voiceExtension } = await import("../src/index.ts");
 const { HANDOFF_COMPLETE_ACK, STEER_ACK } = await import("../src/delegation.ts");
+const { SpeechGate } = await import("../src/audio/vad.ts");
+type FrameScorer = import("../src/audio/vad.ts").FrameScorer;
 
 type Handler = (event: any, ctx: any) => unknown;
 
@@ -66,8 +68,9 @@ afterEach(() => {
 	else process.env.OPENAI_API_KEY = savedKey;
 });
 
-function setup(branch: any[] = []) {
+function setup(branch: any[] = [], overrides: Record<string, any> = {}) {
 	const pi = fakePi();
+	let playerStops = 0;
 	let handlers: any;
 	let recorderHandlers: any;
 	const socket = {
@@ -112,13 +115,23 @@ function setup(branch: any[] = []) {
 			recorderHandlers = handlers;
 			return { start() {}, stop() {}, setMuted() {} } as any;
 		},
-		createPlayer: () => ({ write() {}, stop() {}, dispose() {} }) as any,
+		createPlayer: () => ({ write() {}, stop() { playerStops++; }, dispose() {} }) as any,
+		...overrides,
 	} as any);
-	return { pi, socket, server, ctx, micFrame: (frame: Buffer) => recorderHandlers.onFrame(frame) };
+	return {
+		pi,
+		socket,
+		server,
+		ctx,
+		get playerStops() {
+			return playerStops;
+		},
+		micFrame: (frame: Buffer) => recorderHandlers.onFrame(frame),
+	};
 }
 
 async function startVoice(env: ReturnType<typeof setup>) {
-	await env.pi.command("voice").handler("start", env.ctx);
+	await env.pi.command("stt-live").handler("start", env.ctx);
 	await flush();
 }
 
@@ -137,7 +150,7 @@ const backgroundAgent = (callId: string, prompt: string) => ({
 const messagesOf = (socket: { sent: any[] }) =>
 	socket.sent.filter((e) => e.type !== "session.update" && e.item?.role !== "developer");
 
-test("start envia instruções do Codex, com realtime_start em instructions e sem item developer", async () => {
+test("start envia o backend prompt, com realtime_start em instructions e sem item developer", async () => {
 	const env = setup([
 		{ type: "message", message: { role: "user", content: "corrige o teste do parser" } },
 		{ type: "message", message: { role: "assistant", content: [{ type: "text", text: "feito" }] } },
@@ -148,7 +161,7 @@ test("start envia instruções do Codex, com realtime_start em instructions e se
 	assert.match(update.session.instructions, /Diretório de trabalho: \/work\/projeto/);
 	assert.match(update.session.instructions, /\[USER\] corrige o teste do parser/);
 	assert.match(update.session.instructions, /Realtime conversation started\./);
-	// a API recusa item com role developer em sessão realtime
+	// the API rejects an item with role developer in a realtime session
 	assert.equal(env.socket.sent.find((e) => e.item?.role === "developer"), undefined);
 });
 
@@ -185,7 +198,7 @@ test("background_agent com agente ocupado vira steer e recebe o ack da própria 
 	assert.equal(env.pi.sent[1].deliverAs, "steer");
 	const output = messagesOf(env.socket).find((e) => e.type === "conversation.item.create" && e.item.call_id === "call_2");
 	assert.equal(output.item.output, STEER_ACK);
-	// Um único fim de run completa a chamada original, não o steer.
+	// One run end completes the original call, not the steer.
 	await env.pi.emit("agent_end", { messages: [] }, env.ctx);
 	const completions = messagesOf(env.socket).filter((e) => e.item?.output === HANDOFF_COMPLETE_ACK);
 	assert.deepEqual(completions.map((e) => e.item.call_id), ["call_1"]);
@@ -231,7 +244,72 @@ test("onda do mic tolera tick sem frame e decai quando a captura para", async (t
   t.mock.timers.tick(1800);
   assert.doesNotMatch(widget.render(80).slice(1).join(""), /[▂-█]/);
  } finally {
-  await env.pi.command("voice").handler("stop", env.ctx);
+  await env.pi.command("stt-live").handler("stop", env.ctx);
   widget?.dispose();
  }
+});
+
+// ------------------------------------------------------------------ client VAD
+
+/** Scripted scorer: 2 calls per capture frame; label = labels[frame]. */
+function scriptedScorer(labels: boolean[]): FrameScorer {
+	let calls = 0;
+	return {
+		kind: "rms",
+		score() {
+			const idx = Math.floor(calls / 2);
+			calls++;
+			return labels[idx] ?? false;
+		},
+	};
+}
+
+const vadGate = (labels: boolean[]) => ({
+	createScorer: async () => scriptedScorer(labels),
+	createGate: (options: any) => new SpeechGate({ ...options, onsetMs: 20, hangoverMs: 40, prefillMs: 0 }),
+});
+
+test("vad cliente: appends, depois commit, depois response.create na ordem", async () => {
+	const env = setup([], vadGate([true, true, false, false, false]));
+	await startVoice(env);
+	for (let k = 0; k < 5; k++) env.micFrame(Buffer.alloc(960));
+	const types = env.socket.sent.map((e) => e.type);
+	const appendIdx = types.indexOf("input_audio_buffer.append");
+	const commitIdx = types.indexOf("input_audio_buffer.commit");
+	const createIdx = types.indexOf("response.create");
+	assert.ok(appendIdx >= 0, "audio encaminhado");
+	assert.ok(commitIdx > appendIdx, "commit depois dos appends");
+	assert.ok(createIdx > commitIdx, "response.create depois do commit");
+});
+
+test("vad cliente: barge-in local para o player ao iniciar fala", async () => {
+	const env = setup([], vadGate([true, true]));
+	await startVoice(env);
+	const before = env.playerStops;
+	env.micFrame(Buffer.alloc(960));
+	env.micFrame(Buffer.alloc(960)); // onset reached => speechStarted => player.stop()
+	assert.equal(env.playerStops, before + 1, "player parado pelo gate local");
+});
+
+test("vad off (default): sem commit, appends seguem (regressao)", async () => {
+	const env = setup(); // createScorer default => off => null => pass-through gate
+	await startVoice(env);
+	for (let k = 0; k < 10; k++) env.micFrame(Buffer.alloc(960));
+	const types = env.socket.sent.map((e) => e.type);
+	assert.ok(types.includes("input_audio_buffer.append"));
+	assert.ok(!types.includes("input_audio_buffer.commit"), "off: nunca commit");
+});
+
+test("vad: loader de scorer que lanca cai para fallback e mantem o audio a fluir", async () => {
+	let warned = "";
+	const env = setup([], {
+		createScorer: async (_e: any, _m: any, onWarn: (m: string) => void) => {
+			onWarn("WASM indisponivel");
+			return scriptedScorer([true, true, true]);
+		},
+		createGate: (options: any) => new SpeechGate({ ...options, onsetMs: 20, hangoverMs: 40, prefillMs: 0 }),
+	});
+	await startVoice(env);
+	for (let k = 0; k < 3; k++) env.micFrame(Buffer.alloc(960));
+	assert.ok(env.socket.sent.some((e) => e.type === "input_audio_buffer.append"), "audio continua");
 });

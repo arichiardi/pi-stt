@@ -1,9 +1,9 @@
 /**
- * Ponte voz ↔ agente: o mesmo contrato de texto que o Codex usa no handoff.
+ * Voice <-> agent bridge: the text contract used in the handoff.
  *
- * Entrada do turno delegado (Codex: `realtime_conversation.rs`):
+ * Delegated turn input:
  *   <realtime_delegation>
- *     <input>pedido</input>
+ *     <input>request</input>
  *     <transcript_delta>…</transcript_delta>
  *   </realtime_delegation>
  */
@@ -21,10 +21,10 @@ function unescapeXml(text: string): string {
 	return text.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&");
 }
 
-/** Origem do turno delegado (`RealtimeDelegationSource` do Codex). */
+/** Source of the delegated turn. */
 export type DelegationSource = "handoff" | "transcript_tail_flush";
 
-/** Monta o turno delegado a partir da fala do usuário (`context/realtime_delegation.rs`). */
+/** Builds the delegated turn from user speech (`context/realtime_delegation.rs`). */
 export function wrapDelegation(input: string, transcriptDelta?: string, source: DelegationSource = "handoff"): string {
 	const lines = [OPEN_TAG];
 	if (source === "transcript_tail_flush") lines.push("  <source>transcript_tail_flush</source>");
@@ -36,7 +36,7 @@ export function wrapDelegation(input: string, transcriptDelta?: string, source: 
 	return lines.join("\n");
 }
 
-/** Extrai o pedido de um turno delegado; `undefined` se não for delegação. */
+/** Extracts the request from a delegated turn; `undefined` if this is not a delegation. */
 export function unwrapDelegation(text: string): string | undefined {
 	const body = text.trim();
 	if (!body.startsWith(OPEN_TAG) || !body.endsWith(CLOSE_TAG)) return undefined;
@@ -45,7 +45,7 @@ export function unwrapDelegation(text: string): string | undefined {
 	return unescapeXml(match[1]).trim();
 }
 
-/** Trecho do transcript que acompanha a delegação (opcional). */
+/** Transcript excerpt that accompanies the delegation (optional). */
 export function delegationTranscript(text: string): string | undefined {
 	const match = text.match(/<transcript_delta>([\s\S]*?)<\/transcript_delta>/);
 	if (!match) return undefined;
@@ -53,9 +53,9 @@ export function delegationTranscript(text: string): string | undefined {
 }
 
 /**
- * Último texto do assistente de um run, ignorando blocos de raciocínio.
- * Equivale ao `MessagePhase::FinalAnswer` que o Codex fala: reasoning e
- * commentary nunca são lidos em voz alta.
+ * Last assistant text in a run, ignoring reasoning blocks.
+ * Matches the FinalAnswer phase that is spoken aloud: reasoning and
+ * commentary are never read aloud.
  */
 export function finalAnswerText(
 	messages: readonly { role: string; content: unknown }[],
@@ -76,8 +76,8 @@ export function finalAnswerText(
 	return undefined;
 }
 
-/** Retorno de `background_agent` quando a tarefa termina (V2, `REALTIME_V2_HANDOFF_COMPLETE_ACKNOWLEDGEMENT`). */
+/** `background_agent` return when the task finishes (V2, `REALTIME_V2_HANDOFF_COMPLETE_ACKNOWLEDGEMENT`). */
 export const HANDOFF_COMPLETE_ACK = "Background agent finished. Use the preceding [BACKEND] messages as the result.";
 
-/** Retorno de `background_agent` quando o pedido vira steer de tarefa ativa (`REALTIME_V2_STEER_ACKNOWLEDGEMENT`). */
+/** `background_agent` return when the request steers an active task (`REALTIME_V2_STEER_ACKNOWLEDGEMENT`). */
 export const STEER_ACK = "This was sent to steer the previous background agent task.";

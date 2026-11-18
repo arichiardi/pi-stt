@@ -1,30 +1,30 @@
-# ADR 0001 — A sessão do pi é a única cabeça da conversa de voz
+# ADR 0001 - The pi session is the only head of the voice conversation
 
-**Status:** superada pela ADR 0002 (paridade com o `/voice` do Codex). Mantida como histórico.
+**Status:** Superseded by ADR 0002 (parity with the Codex `/voice`). Kept as history.
 
-## Contexto
+## Context
 
-O `/voice` usava um modelo realtime com instruções próprias, que respondia sozinho e não via a sessão do pi. Resultado: perda de contexto ("corrige isso" sem referente), respostas divergentes do agente e fala fora do histórico.
+`/stt-live` used a realtime model with its own instructions. It answered on its own, and it did not see the pi session. Result: lost context ("fix that" with no referent), answers that diverged from the agent, and speech outside the history.
 
-## Decisão
+## Decision
 
-- A sessão do pi concentra contexto, decisões e execução.
-- A voz transporta: transcreve a entrada e sintetiza a saída a partir de texto fornecido pelo pi.
-- Toda fala consolidada entra na sessão como mensagem de voz (`steer` quando há execução em curso).
-- O resumo falado é gerado pelo pi junto da resposta visual.
-- Decisões pendentes continuam no terminal; a voz só avisa.
+- The pi session holds the context, the decisions, and the execution.
+- Voice only carries: it transcribes the input, and it synthesizes the output from text given by pi.
+- All consolidated speech enters the session as a voice message (`steer` when a run is in progress).
+- pi generates the spoken summary together with the visual answer.
+- Pending decisions stay in the terminal; voice only warns.
 
-## Consequências
+## Consequences
 
-- Latência por turno sobe: cada fala passa pelo agente. Medir antes de otimizar.
-- A fronteira "só boca" não pode depender apenas de prompt. A transcrição e a síntese devem ser serviços separados, ou a integração deve controlar quando o realtime emite áudio e qual conteúdo fala.
-- Exige registrar, no histórico, quais respostas já foram faladas em áudio.
+- Latency per turn goes up: every utterance goes through the agent. Measure before optimizing.
+- The "mouth only" boundary cannot depend on a prompt alone. Keep transcription and synthesis as separate services, or make the integration control when the realtime model emits audio and what content it speaks.
+- Record in the history which answers were already spoken as audio.
 
-## Alternativas consideradas
+## Alternatives considered
 
-- **Voz com cérebro próprio** (estado atual): rápida em conversa simples, mas diverge do agente. Rejeitada.
-- **Voz só para ditado** (transcreve e digita): sem respostas faladas. Rejeitada por não atender ao uso desejado.
+- **Voice with its own brain** (current state): fast in simple conversation, but it diverges from the agent. Rejected.
+- **Voice for dictation only** (transcribe and type): no spoken answers. Rejected, because it does not serve the intended use.
 
-## Critério de sucesso
+## Success criterion
 
-Alternar entre falar e digitar preserva a mesma conversa e as mesmas decisões. Após "corrige isso", a sessão tem o referente e a instrução, e sabe qual resposta já foi falada.
+Switching between speaking and typing keeps the same conversation and the same decisions. After "fix that", the session has the referent and the instruction, and it knows which answer was already spoken.

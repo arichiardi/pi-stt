@@ -1,12 +1,12 @@
 /**
- * Visual da sessão de voz no terminal.
+ * Voice session view in the terminal.
  *
- * Reproduz a linha de status do Codex, com o agente pi no lugar do codex:
- *   voice ● speaking              f9 mute    /voice stop
+ * Status line for the voice session, with the pi agent as the subject:
+ *   voice ● speaking              f9 mute    /stt-live stop
  *   mic ▅▆▇▅▃▂   pi ▁▂▃▅▇█
  *
- * Usa `setWidget` acima do editor (animado, redesenha por frame) + `setStatus`
- * no rodapé nativo, que continua mostrando tokens/git/modelo.
+ * Uses `setWidget` above the editor (animated, redraws each frame) plus `setStatus`
+ * in the native footer, which still shows tokens/git/model.
  */
 
 import type { Component, TUI, Theme } from "@earendil-works/pi-tui";
@@ -16,41 +16,41 @@ export type VoicePhase = "starting" | "listening" | "muted" | "speaking" | "work
 
 export interface VoiceViewState {
 	phase: VoicePhase;
-	/** Pico RMS do microfone desde a última leitura, 0..1 (consumido pela onda). */
+	/** Peak mic RMS since the last read, 0..1 (consumed by the wave). */
 	takeMicLevel?: () => number;
-	/** RMS, 0..1, do áudio do agente que está tocando no instante `at` (ms epoch). */
+	/** RMS, 0..1, of the agent audio playing at time `at` (ms epoch). */
 	outLevelAt?: (at: number) => number;
-	/** Fala do agente em andamento. */
+	/** Agent speech in progress. */
 	speaking: boolean;
-	/** Última transcrição reconhecida (usuário ou agente). */
+	/** Last recognized transcript (user or agent). */
 	caption?: string;
 }
 
 const BLOCKS = ["▁", "▂", "▃", "▄", "▅", "▆", "▇", "█"];
 const WAVE_MS = 30;
-/** Quantidade de barras por onda. */
+/** Bars per wave. */
 const BARS = 10;
-/** Piso do medidor (dB). Ruído de fundo fica abaixo; fala típica sobe até ~-20 dB. */
+/** Meter floor (dB). Background noise stays below; typical speech rises to ~-20 dB. */
 const FLOOR_DB = -55;
-/** Topo do medidor (dB): acima disso a barra fica cheia. */
+/** Meter ceiling (dB). Above this the bar is full. */
 const CEIL_DB = -12;
-/** Mic captado (medido com a fala do usuário): ruído ~-48..-43 dB, fala típica -45..-30 dB, pico ~-22 dB. */
+/** Mic picked up (measured with user speech): noise ~-48..-43 dB, typical speech -45..-30 dB, peak ~-22 dB. */
 const MIC_FLOOR_DB = -48;
 const MIC_CEIL_DB = -28;
-/** Subida rápida (ataque) e queda suave (liberação) para a barra não "tremer". */
+/** Fast rise (attack) and soft fall (release) so the bar does not jitter. */
 const ATTACK = 0.75;
 const RELEASE = 0.15;
-/** Ganho automático: referência mínima, queda do pico por tick e porta de ruído (RMS). */
+/** Auto gain: minimum reference, peak decay per tick, and noise gate (RMS). */
 const REF_MIN = 0.003;
 const PEAK_DECAY = 0.985;
 const GATE = 0.0015;
 
-/** Mapeia RMS linear (0..1) para 0..1 em escala logarítmica, perceptual. */
+/** Maps linear RMS (0..1) to 0..1 on a log, perceptual scale. */
 export function levelToUnit(level: number): number {
 	return dbToUnit(level, FLOOR_DB, CEIL_DB);
 }
 
-/** Mesma escala logarítmica, com piso/topo do microfone. */
+/** Same log scale, with the mic floor and ceiling. */
 export function micLevelToUnit(level: number): number {
 	return dbToUnit(level, MIC_FLOOR_DB, MIC_CEIL_DB);
 }
@@ -62,9 +62,9 @@ function dbToUnit(level: number, floorDb: number, ceilDb: number): number {
 }
 
 /**
- * Ganho automático: normaliza pelo pico recente, com decaimento lento.
- * Microfone captura bem menos que a saída do agente; sem isso a barra fica baixa.
- * Abaixo de `gate` é silêncio.
+ * Auto gain: normalizes by the recent peak, with slow decay.
+ * The mic captures much less than the agent output; without this the bar stays low.
+ * Below `gate` is silence.
  */
 export class AutoGain {
 	private peak = REF_MIN;
@@ -78,15 +78,15 @@ export class AutoGain {
 	}
 }
 
-/** Suaviza um nível com ataque rápido e liberação lenta. */
+/** Smooths a level with fast attack and slow release. */
 export function envelope(prev: number, target: number): number {
 	const k = target > prev ? ATTACK : RELEASE;
 	return prev + (target - prev) * k;
 }
 
 /**
- * Onda em duas linhas (16 níveis): a linha de cima só enche depois que a de baixo está cheia.
- * Retorna [linhaDeCima, linhaDeBaixo], ambas com `width` colunas, mais recente à direita.
+ * Wave in two rows (16 levels): the top row fills only after the bottom row is full.
+ * Returns [topRow, bottomRow], both `width` columns wide, newest on the right.
  */
 export function waveRows(history: readonly number[], width: number): [string, string] {
 	const start = Math.max(0, history.length - width);
@@ -103,7 +103,7 @@ export function waveRows(history: readonly number[], width: number): [string, st
 	return [top, bottom];
 }
 
-/** Uma barra por amostra (0..1), mais recente à direita; preenche com `▁` à esquerda. */
+/** One bar per sample (0..1), newest on the right; pads the left with `▁`. */
 export function wave(history: readonly number[], width: number): string {
 	const start = Math.max(0, history.length - width);
 	let out = BLOCKS[0].repeat(width - (history.length - start));
@@ -157,7 +157,7 @@ class VoiceWidget implements Component {
 		this.timer = setInterval(() => {
 			const s = this.state();
 			const mic = s.takeMicLevel?.() ?? 0;
-			// Mapeia dB absoluto: normalizar pelo pico (AutoGain) achata tudo em barra cheia.
+			// Maps absolute dB: normalizing by peak (AutoGain) flattens everything to a full bar.
 			const micTarget = s.phase === "muted" ? 0 : micLevelToUnit(mic);
 			const outTarget = s.speaking ? levelToUnit(s.outLevelAt?.(Date.now()) ?? 0) : 0;
 			if (s.phase === "muted") {
@@ -189,11 +189,11 @@ class VoiceWidget implements Component {
 		const left = `${theme.fg("muted", "voice")} ${dot}${label}`;
 		const hintMute = state.phase === "muted" ? "f9 unmute" : "f9 mute";
 		const right =
-			theme.fg("dim", hintMute) + theme.fg("muted", "   ") + theme.fg("dim", "/voice stop");
+			theme.fg("dim", hintMute) + theme.fg("muted", "   ") + theme.fg("dim", "/stt-live stop");
 		const pad = " ".repeat(Math.max(1, width - 2 - visibleWidth(left) - visibleWidth(right)));
 
 		const micMuted = state.phase === "muted";
-		// Barras separadas mostram o histórico recente da fala.
+		// Separate bars show the recent speech history.
 		const micBars = wave(micMuted ? [] : this.micHistory, BARS).split("").join(" ");
 		const mic = `${theme.fg("muted", "mic")}  ${theme.fg(micMuted ? "dim" : "accent", micBars)}`;
 		const out = state.speaking

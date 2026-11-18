@@ -1,5 +1,5 @@
 /**
- * Testes offline do contrato voz ↔ agente (mesmo formato do handoff do Codex).
+ * Offline tests of the voice ↔ agent contract (same format as the handoff).
  */
 
 import assert from "node:assert/strict";
@@ -13,7 +13,7 @@ import {
 	wrapDelegation,
 } from "../src/delegation.ts";
 
-test("delegação gera o envelope do Codex", () => {
+test("delegação gera o envelope", () => {
 	assert.equal(
 		wrapDelegation("rode os testes"),
 		"<realtime_delegation>\n  <input>rode os testes</input>\n</realtime_delegation>",
@@ -74,7 +74,7 @@ test("resposta final vazia vira undefined", () => {
 	assert.equal(finalAnswerText([]), undefined);
 });
 
-test("textos de retorno da V2 iguais aos do Codex", () => {
+test("textos de retorno da V2", () => {
 	assert.equal(HANDOFF_COMPLETE_ACK, "Background agent finished. Use the preceding [BACKEND] messages as the result.");
 	assert.equal(STEER_ACK, "This was sent to steer the previous background agent task.");
 });

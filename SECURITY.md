@@ -1,15 +1,15 @@
-# Política de segurança
+# Security policy
 
-A extensão manipula credenciais da OpenAI (`OPENAI_API_KEY`, `auth.json`) e áudio do microfone.
+The extension handles OpenAI credentials (`OPENAI_API_KEY`, `auth.json`) and microphone audio.
 
-## Reportar uma vulnerabilidade
+## Report a vulnerability
 
-**Não abra issue pública.** Use o aviso privado de segurança do GitHub deste repositório (aba *Security* → *Report a vulnerability*).
+**Do not open a public issue.** Use the private security advisory on this repository's GitHub (the *Security* tab → *Report a vulnerability*).
 
-Inclua: versão do pacote, passos para reproduzir e impacto esperado.
+Include: the package version, steps to reproduce, and the expected impact.
 
-## Escopo
+## Scope
 
-Dentro do escopo: vazamento de credenciais, execução de comandos via configuração, gravação de áudio sem indicação ao usuário.
+In scope: credential leaks, command execution through config, and audio recording with no clear sign to the user.
 
-Fora do escopo: problemas no pi, na API Realtime da OpenAI ou no PipeWire — reporte a eles diretamente.
+Out of scope: problems in pi, in the OpenAI Realtime API, or in PipeWire. Report those to them directly.

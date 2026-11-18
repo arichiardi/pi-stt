@@ -1,21 +1,21 @@
 ---
 name: Bug
-about: Algo não funciona como deveria
+about: Something does not work as it should
 labels: bug
 ---
 
-**Plataforma** (obrigatório — o caminho ativo é Linux-only)
-- Distro/versão:
-- Versão do Node (`node -v`):
-- Versão do pi:
-- Versão do pacote (`npm ls pi-voice-realtime`):
+**Platform** (required - the active path is Linux-only)
+- Distro/version:
+- Node version (`node -v`):
+- pi version:
+- Package version (`npm ls @ar-llm/pi-stt`):
 
-**Saída de `/voice status`** (sem credenciais)
+**Output of `/stt-live status`** (no credentials)
 
-**O que você fez**
+**What you did**
 
-**O que aconteceu**
+**What happened**
 
-**O que era esperado**
+**What was expected**
 
-**Logs** (remova qualquer chave de API antes de colar)
+**Logs** (remove any API key before pasting)

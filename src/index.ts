@@ -1,26 +1,33 @@
 /**
- * /voice — modo de conversa por voz, replicando o `/voice` do Codex CLI.
+ * /stt-live - voice conversation mode, mirroring the Codex CLI /voice.
  *
- * Fluxo (igual ao Codex):
- *   /voice  → abre sessão realtime full-duplex (mic aberto, VAD do servidor).
- *   Você fala → o modelo de voz conversa e, para qualquer trabalho, chama
- *   `background_agent` (ADR 0002). O pedido vira um turno normal do pi:
+ * Flow:
+ *   /stt-live  → opens a full-duplex realtime session (mic open, server VAD).
+ *   You speak → the voice model replies and, for any work, calls
+ *   `background_agent` (ADR 0002). The request becomes a normal pi turn:
  *   `<realtime_delegation><input>…</input></realtime_delegation>`.
- *   Progresso e resultado voltam como `[BACKEND] …`, seguidos de
- *   `function_call_output` e resposta falada.
+ *   Progress and result return as `[BACKEND] …`, then
+ *   `function_call_output` and a spoken reply.
  *
- * Comandos: /voice [start|stop|mute|unmute|settings|status]
- * Atalho:   f9 — muta/desmuta o microfone.
+ * Commands: /stt-live [start|stop|mute|unmute|settings|status]
+ * Shortcut: f9 - mute/unmute the microphone.
  *
- * Requer OPENAI_API_KEY (ou PI_VOICE_API_KEY, ou openai em ~/.pi/agent/auth.json):
- * o transporte é o mesmo `/v1/realtime` do Codex, com API key em vez de auth ChatGPT.
+ * Needs OPENAI_API_KEY (or PI_VOICE_API_KEY, or openai in <agentDir>/auth.json):
+ * the transport is `/v1/realtime`, with an API key instead of ChatGPT auth.
  */
 
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { SelectList, Text } from "@earendil-works/pi-tui";
 import type { ChildProcess } from "node:child_process";
 import { BYTES_PER_SAMPLE, Player, Recorder, rmsLevel } from "./audio.ts";
-import { SAMPLE_RATE } from "./config.ts";
+import { SAMPLE_RATE, type VadEngine, type VadMode } from "./config.ts";
+import {
+	SpeechGate,
+	createScorer as loadScorer,
+	type FrameScorer,
+	type GateEvent,
+	type SpeechGateOptions,
+} from "./audio/vad.ts";
 import { ensurePreview, playPreviewFile } from "./previews.ts";
 import { openEchoAudio, EchoCleanup, type EchoAudio } from "./echo.ts";
 import {
@@ -47,18 +54,24 @@ const WIDGET_KEY = "voice";
 const STATUS_KEY = "voice";
 const TRANSCRIPT_ENTRY = "voice-transcript";
 
-/** Dependências externas (socket, AEC, microfone, player). Injetáveis para teste. */
+/** External dependencies (socket, AEC, microphone, player). Injectable for tests. */
 export interface VoiceDeps {
 	openSocket?: RealtimeSessionOptions["openSocket"];
 	openEcho: () => Promise<EchoAudio>;
 	createPlayer: (...args: ConstructorParameters<typeof Player>) => Player;
 	createRecorder: (...args: ConstructorParameters<typeof Recorder>) => Recorder;
+	/** Build the VAD scorer. Injectable; the default loads libfvad (WASM). */
+	createScorer: (engine: VadEngine, mode: VadMode, onWarn: (message: string) => void) => Promise<FrameScorer | null>;
+	/** Build the gate. Injectable; the default uses `SpeechGate`. */
+	createGate: (options: SpeechGateOptions) => SpeechGate;
 }
 
 const DEFAULT_DEPS: VoiceDeps = {
 	openEcho: () => openEchoAudio(),
 	createPlayer: (backend, onError) => new Player(backend, onError),
 	createRecorder: (handlers) => new Recorder(handlers),
+	createScorer: (engine, mode, onWarn) => loadScorer(engine, mode, onWarn),
+	createGate: (options) => new SpeechGate(options),
 };
 
 export default function (pi: ExtensionAPI, overrides: Partial<VoiceDeps> = {}) {
@@ -67,28 +80,32 @@ export default function (pi: ExtensionAPI, overrides: Partial<VoiceDeps> = {}) {
 	let session: RealtimeSession | undefined;
 	let recorder: Recorder | undefined;
 	let player: Player | undefined;
+	/** VAD gate for the current session (null when the engine is off). */
+	let gate: SpeechGate | undefined;
+	/** Label for `/stt-live status`: `<engine> · <wasm status>`. */
+	let vadLabel = "off";
 	let echoAudio: EchoAudio | undefined;
 	const echoCleanup = new EchoCleanup();
 	let muted = false;
 	let speaking = false;
-	/** Chamada `background_agent` em andamento; o resultado é devolvido quando o pi termina. */
+	/** `background_agent` call in progress; the result is returned when the pi run ends. */
 	let activeCall: string | undefined;
-	/** Há um run do pi em andamento (agent_start → agent_end). */
+	/** A pi run is in progress (agent_start → agent_end). */
 	let agentRunning = false;
 	let view: VoiceViewState = { phase: "listening", speaking: false };
-	/** Nível médio do microfone desde a última amostra da onda. */
-	// RMS médio dos frames de 20 ms recebidos desde o último tick da onda (30 ms).
+	/** Average microphone level since the last waveform sample. */
+	// Mean RMS of the 20 ms frames received since the last waveform tick (30 ms).
 	let micSum = 0;
 	let micCount = 0;
 	let micLast = 0;
 	let micLastAt = 0;
-	/** Segmentos de áudio do agente, com o instante em que devem tocar. */
+	/** Agent audio segments, with the time they should play. */
 	let outSchedule: Array<{ at: number; level: number }> = [];
-	/** Instante (ms epoch) em que o áudio já enfileirado termina de tocar. */
+	/** Time (ms epoch) when the already queued audio finishes playing. */
 	let playhead = 0;
 	let speakingTimer: ReturnType<typeof setTimeout> | undefined;
-	// O widget anima por conta própria (timer de 60 ms chamando tui.requestRender);
-	// aqui só atualizamos o estado. O rodapé é atualizado por setStatus().
+	// The widget animates on its own (60 ms timer calling tui.requestRender);
+	// here we only update state. The footer updates through setStatus().
 	const refresh = () => {};
 
 	const setPhase = (phase: VoiceViewState["phase"]) => {
@@ -104,15 +121,15 @@ export default function (pi: ExtensionAPI, overrides: Partial<VoiceDeps> = {}) {
 	};
 
 	const takeMicLevel = () => {
-		// Com tick de 30 ms e frames de 20 ms, alguns ticks chegam sem frame novo: mantém o último nível em vez de zerar (evita piscar).
+		// With a 30 ms tick and 20 ms frames, some ticks bring no new frame: keep the last level instead of zeroing (avoids flicker).
 		if (micCount) micLast = micSum / micCount;
 		micSum = 0;
 		micCount = 0;
-		// Tolera ticks sem frame, mas não mantém a onda congelada se a captura parar.
+		// Tolerate ticks without a frame, but do not freeze the waveform if capture stops.
 		return Date.now() - micLastAt < 150 ? micLast : 0;
 	};
 
-	/** Maior nível dos segmentos que já deveriam estar tocando em `at`. */
+	/** Highest level among segments that should already be playing at `at`. */
 	const outLevelAt = (at: number) => {
 		let level = 0;
 		while (outSchedule.length && outSchedule[0].at <= at) level = Math.max(level, outSchedule.shift()!.level);
@@ -131,7 +148,7 @@ export default function (pi: ExtensionAPI, overrides: Partial<VoiceDeps> = {}) {
 		playhead = at;
 	};
 
-	/** Só encerra "speaking" quando o áudio enfileirado terminou de tocar localmente. */
+	/** End "speaking" only after the queued audio finished playing locally. */
 	const endSpeakingWhenPlayed = (ctx: ExtensionContext) => {
 		if (speakingTimer) clearTimeout(speakingTimer);
 		speakingTimer = setTimeout(() => {
@@ -153,9 +170,9 @@ export default function (pi: ExtensionAPI, overrides: Partial<VoiceDeps> = {}) {
 	};
 
 	/**
-	 * Fala consolidada entra no histórico do pi sem disparar turno (`sendMessage`
-	 * sem `triggerTurn`), como o Codex grava TranscriptSegment no contexto do modelo.
-	 * A exibição usa a entrada persistida ao lado.
+	 * Consolidated speech enters the pi history without triggering a turn (`sendMessage`
+	 * without `triggerTurn`), written as a TranscriptSegment into the model context.
+	 * The display uses the persisted entry next to it.
 	 */
 	function recordTranscript(role: "user" | "agent", text: string) {
 		if (!text.trim()) return;
@@ -176,6 +193,9 @@ export default function (pi: ExtensionAPI, overrides: Partial<VoiceDeps> = {}) {
 		recorder = undefined;
 		player?.dispose();
 		player = undefined;
+		gate?.dispose();
+		gate = undefined;
+		vadLabel = "off";
 		const oldEcho = echoAudio;
 		echoAudio = undefined;
 		if (oldEcho) echoCleanup.add(oldEcho);
@@ -199,8 +219,10 @@ export default function (pi: ExtensionAPI, overrides: Partial<VoiceDeps> = {}) {
 	function toggleMute(ctx: ExtensionContext) {
 		if (!active()) return;
 		muted = !muted;
-		// Mutar afeta só a captura: o Codex continua reproduzindo a resposta.
+		// Mute only affects capture: playback of the reply continues.
 		recorder?.setMuted(muted);
+		// Drop the pre-mute pre-roll so audio does not leak after unmute (R6).
+		gate?.reset();
 		micSum = 0;
 		micCount = 0;
 		micLast = 0;
@@ -213,7 +235,7 @@ export default function (pi: ExtensionAPI, overrides: Partial<VoiceDeps> = {}) {
 
 	async function start(ctx: ExtensionContext) {
 		if (active()) {
-			ctx.ui.notify("sessão de voz já está ativa — /voice stop para encerrar", "info");
+			ctx.ui.notify("sessão de voz já está ativa — /stt-live stop para encerrar", "info");
 			return;
 		}
 		const apiKey = resolveApiKey();
@@ -234,6 +256,8 @@ export default function (pi: ExtensionAPI, overrides: Partial<VoiceDeps> = {}) {
 		micLastAt = 0;
 		outSchedule = [];
 		playhead = 0;
+		gate = undefined;
+		vadLabel = "off";
 
 		if (ctx.mode === "tui") {
 			ctx.ui.setWidget(WIDGET_KEY, createVoiceWidget(() => ({ ...view, takeMicLevel, outLevelAt })), {
@@ -243,10 +267,10 @@ export default function (pi: ExtensionAPI, overrides: Partial<VoiceDeps> = {}) {
 
 		const onEvent = (event: VoiceEvent) => handleEvent(event, ctx);
 
-		// Estado "connecting" até a sessão estar configurada; microfone só depois.
+		// Show "connecting" until the session is configured; open the mic only after.
 		setStatus(ctx);
 
-		// realtime_start vai em `instructions` (como no Codex V2); item `developer` é recusado pela API.
+		// realtime_start goes in `instructions` (V2); the API rejects a `developer` item.
 		const instructions = buildInstructions(
 			`${backendPrompt(process.env.USER || process.env.USERNAME)}\n\n${START_INSTRUCTIONS}`,
 			buildStartupContext(ctx.sessionManager.getBranch(), ctx.cwd),
@@ -272,7 +296,7 @@ export default function (pi: ExtensionAPI, overrides: Partial<VoiceDeps> = {}) {
 			}
 			return;
 		}
-		// /voice stop (ou falha) durante a conexão já encerrou esta sessão.
+		// /stt-live stop (or a failure) during connect already ended this session.
 		if (session !== current) return;
 
 		try {
@@ -289,10 +313,34 @@ export default function (pi: ExtensionAPI, overrides: Partial<VoiceDeps> = {}) {
 			player = deps.createPlayer(routes.playback, (error) => {
 				if (session === current) teardown(`player: ${error.message}`, ctx);
 			});
+			// VAD gate: decides the turn boundary. Engine off => null scorer (pass-through).
+			const scorer = await deps.createScorer(settings.vad.engine, settings.vad.mode, (message) => {
+				if (session === current) ctx.ui.notify(message, "warning");
+			});
+			if (session !== current) return;
+			gate = deps.createGate({
+				scorer,
+				onsetMs: settings.vad.onsetMs,
+				hangoverMs: settings.vad.hangoverMs,
+				prefillMs: settings.vad.prefillMs,
+				onWarn: (message) => {
+					if (session === current) ctx.ui.notify(message, "warning");
+				},
+			});
+			vadLabel = scorer
+				? `${settings.vad.engine} · ${scorer.kind === "webrtc_fvad" ? "wasm" : "rms"}`
+				: "off";
 			recorder = deps.createRecorder({
 				onFrame: (frame) => {
 					if (session !== current) return;
-					current.appendAudio(frame);
+					if (gate) {
+						const { frames, events } = gate.push(frame);
+						for (const f of frames) current.appendAudio(f);
+						for (const e of events) onGateEvent(e, current, ctx);
+					} else {
+						current.appendAudio(frame);
+					}
+					// The meter sees every frame, so the waveform animates during silence.
 					micSum += rmsLevel(frame);
 					micCount++;
 					micLastAt = Date.now();
@@ -314,23 +362,43 @@ export default function (pi: ExtensionAPI, overrides: Partial<VoiceDeps> = {}) {
 		setStatus(ctx);
 		ctx.ui.notify(
 			muted
-				? "Voz conectada (mutado). f9 desmuta, /voice stop encerra."
-				: "Conversa por voz iniciada. f9 muda, /voice stop encerra.",
+				? "Voz conectada (mutado). f9 desmuta, /stt-live stop encerra."
+				: "Conversa por voz iniciada. f9 muda, /stt-live stop encerra.",
 			"info",
 		);
 	}
 
 	function speak() {
-		// O áudio do modelo chega por `response.output_audio.delta`; só marcamos o estado.
+		// Model audio arrives through `response.output_audio.delta`; here we only mark the state.
 		speaking = true;
 		view = { ...view, phase: "speaking", speaking: true };
 		refresh();
 	}
 
+	/**
+	 * Client-side VAD gate events. With `turn_detection: null` the server does not
+	 * send `speech_started`; the gate does local barge-in and commits at the end.
+	 */
+	function onGateEvent(event: GateEvent, current: RealtimeSession, ctx: ExtensionContext) {
+		if (event.type === "speechStarted") {
+			speaking = false;
+			if (speakingTimer) clearTimeout(speakingTimer);
+			speakingTimer = undefined;
+			outSchedule = [];
+			playhead = 0;
+			if (!muted) player?.stop();
+			view = { ...view, phase: "listening", speaking: false };
+			refresh();
+		} else {
+			current.commitAndRespond();
+		}
+		setStatus(ctx);
+	}
+
 	function handleEvent(event: VoiceEvent, ctx: ExtensionContext) {
 		switch (event.kind) {
 			case "ready":
-				// Informativo: `start()` só passa a "listening" depois de connect() resolver.
+				// Informational: `start()` only moves to "listening" after connect() resolves.
 				break;
 
 			case "audio":
@@ -345,7 +413,7 @@ export default function (pi: ExtensionAPI, overrides: Partial<VoiceDeps> = {}) {
 				break;
 
 			case "speech_started":
-				// Barge-in: o servidor cancela a resposta (interrupt_response); a sessão trunca o áudio.
+				// Barge-in: the server cancels the reply (interrupt_response); the session truncates the audio.
 				speaking = false;
 				if (speakingTimer) clearTimeout(speakingTimer);
 				speakingTimer = undefined;
@@ -374,12 +442,12 @@ export default function (pi: ExtensionAPI, overrides: Partial<VoiceDeps> = {}) {
 				break;
 
 			case "remain_silent":
-				// Sem efeito visível e sem resposta (`NoopRequested` do Codex).
+				// No visible effect and no reply (noop request).
 				session?.functionCallOutput(event.callId, "");
 				break;
 
 			case "response_done":
-				// A geração terminou, mas o áudio ainda pode estar tocando: a onda segue até o fim.
+				// Generation ended, but audio may still be playing: keep the waveform running to the end.
 				endSpeakingWhenPlayed(ctx);
 				break;
 
@@ -393,14 +461,14 @@ export default function (pi: ExtensionAPI, overrides: Partial<VoiceDeps> = {}) {
 	}
 
 	/**
-	 * `background_agent` (handle_handoff_output do Codex, V2):
-	 * - ocioso: inicia o turno; o resultado volta ao fim do run;
-	 * - agente em execução: steer da tarefa ativa, com ack imediato.
+	 * `background_agent` (handoff output, V2):
+	 * - idle: start the turn; the result returns at the end of the run;
+	 * - agent running: steer the active task, with an immediate ack.
 	 */
 	function handoff(callId: string, prompt: string, ctx: ExtensionContext) {
 		const turn = wrapDelegation(prompt);
 		if (activeCall) {
-			// Steer: a chamada original completa no fim do run; esta recebe só o ack.
+			// Steer: the original call completes at the end of the run; this one gets only the ack.
 			pi.sendUserMessage(turn, { deliverAs: "steer" });
 			session?.functionCallOutput(callId, STEER_ACK);
 			session?.createResponse();
@@ -420,10 +488,10 @@ export default function (pi: ExtensionAPI, overrides: Partial<VoiceDeps> = {}) {
 		}
 	}
 
-	// ------------------------------------------------------------------ comandos
+	// ------------------------------------------------------------------ commands
 
-	pi.registerCommand("voice", {
-		description: "Conversa por voz com o agente (start | stop | mute | settings)",
+	pi.registerCommand("stt-live", {
+		description: "Real-time voice conversation with the agent (start | stop | mute | settings)",
 		getArgumentCompletions: (prefix) =>
 			["start", "stop", "mute", "unmute", "settings", "status"]
 				.filter((option) => option.startsWith(prefix))
@@ -461,6 +529,7 @@ export default function (pi: ExtensionAPI, overrides: Partial<VoiceDeps> = {}) {
 							`modelo: ${settings.model}`,
 							`credencial: ${key ? "ok" : "ausente"}`,
 							`transporte: ${session?.transport?.impl ?? "-"} · auth: ${session?.transport?.authMode ?? "-"} · protocolo: realtime V2`,
+							`vad: ${vadLabel}${gate ? ` · gate: ${gate.phase}` : ""}`,
 							`saída: ${player ? "aberta" : "fechada"} · entrada: ${recorder ? "aberta" : "fechada"}`,
 						].join("\n"),
 						"info",
@@ -471,7 +540,7 @@ export default function (pi: ExtensionAPI, overrides: Partial<VoiceDeps> = {}) {
 					await openSettings(ctx);
 					return;
 				default:
-					ctx.ui.notify(`/voice ${action}: use start, stop, mute, unmute, settings ou status`, "warning");
+					ctx.ui.notify(`/stt-live ${action}: use start, stop, mute, unmute, settings ou status`, "warning");
 			}
 		},
 	});
@@ -482,14 +551,14 @@ export default function (pi: ExtensionAPI, overrides: Partial<VoiceDeps> = {}) {
 		settings = { ...settings, voice: choice as VoiceName };
 		saveSettings(settings);
 		ctx.ui.notify(
-			`voz definida para ${choice} — vale para a próxima sessão (/voice stop e /voice)`,
+			`voz definida para ${choice} — vale para a próxima sessão (/stt-live stop e /stt-live)`,
 			"info",
 		);
 	}
 
 	/**
-	 * Seletor de voz com prévia: ao mudar o cursor, toca a amostra da voz
-	 * (gerada uma vez e guardada em cache). Enter confirma, Esc cancela.
+	 * Voice picker with preview: moving the cursor plays the voice sample
+	 * (generated once and cached). Enter confirms, Esc cancels.
 	 */
 	function pickVoice(ctx: ExtensionCommandContext): Promise<VoiceName | undefined> {
 		return ctx.ui.custom<VoiceName | undefined>((_tui, theme, _kb, done) => {
@@ -513,7 +582,7 @@ export default function (pi: ExtensionAPI, overrides: Partial<VoiceDeps> = {}) {
 				}
 				try {
 					const path = await ensurePreview(voice, key);
-					if (mine !== seq) return; // cursor já mudou
+					if (mine !== seq) return; // cursor already moved
 					current = playPreviewFile(path);
 				} catch (error) {
 					if (!warned) ctx.ui.notify(String((error as Error).message ?? error), "warning");
@@ -563,16 +632,16 @@ export default function (pi: ExtensionAPI, overrides: Partial<VoiceDeps> = {}) {
 		description: "Voz: mutar/desmutar microfone",
 		handler: async (ctx) => {
 			if (!active()) {
-				ctx.ui.notify("voz inativa — use /voice para iniciar", "info");
+				ctx.ui.notify("voz inativa — use /stt-live para iniciar", "info");
 				return;
 			}
 			toggleMute(ctx);
 		},
 	});
 
-	// ------------------------------------------------------------------ eventos
+	// ------------------------------------------------------------------ events
 
-	// Esconde o XML da delegação no transcript, mostrando só o pedido falado.
+	// Hide the delegation XML in the transcript, showing only the spoken request.
 	pi.registerMarkdownTransformer((markdown) => {
 		const unwrapped = unwrapDelegation(markdown);
 		if (unwrapped === undefined) return markdown;
@@ -595,7 +664,7 @@ export default function (pi: ExtensionAPI, overrides: Partial<VoiceDeps> = {}) {
 		if (!session || !activeCall) return;
 		const callId = activeCall;
 		activeCall = undefined;
-		// Resultado como item [BACKEND]; depois a conclusão da chamada, como no Codex V2.
+		// Result as a [BACKEND] item; then the call completion.
 		const answer = finalAnswerText(event.messages);
 		if (answer) session.backendItem(answer);
 		session.functionCallOutput(callId, HANDOFF_COMPLETE_ACK);
@@ -605,7 +674,7 @@ export default function (pi: ExtensionAPI, overrides: Partial<VoiceDeps> = {}) {
 		setStatus(ctx);
 	});
 
-	// Pedido de decisão (permission prompt, erro, confirmação) é anunciado por voz.
+	// A decision request (permission prompt, error, confirmation) is announced by voice.
 	pi.on("ui_prompt_start", async (event, ctx) => {
 		if (!session) return;
 		session.backendItem(`o agente precisa de uma decisão no terminal: ${event.title ?? event.kind}`);

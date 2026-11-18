@@ -1,13 +1,13 @@
 /**
- * Contexto de inicialização da sessão realtime (`core/src/realtime_context.rs`).
+ * Realtime session startup context.
  *
- * O Codex monta, ao iniciar, os turnos recentes da thread e o workspace, com
- * orçamento de 5 300 tokens. Aqui a "thread" é o ramo ativo da sessão do pi.
- * Tokens são estimados por caracteres / 4, como no Codex (`approx_token_count`).
+ * Mirrors the Codex realtime design. At start, it assembles the recent thread
+ * turns and the workspace, with a budget of 5300 tokens. Here the "thread" is
+ * the active branch of the pi session. Tokens are estimated by characters / 4.
  */
 
 export const STARTUP_CONTEXT_TOKEN_BUDGET = 5_300;
-/** Teto por turno (`REALTIME_TURN_TOKEN_BUDGET` no Codex). */
+/** Per-turn cap. */
 export const TURN_TOKEN_BUDGET = 400;
 
 export interface BranchEntry {
@@ -33,7 +33,7 @@ function textOf(content: unknown): string {
 		.trim();
 }
 
-/** Turnos user/assistant do ramo, do mais antigo ao mais recente, sem blocos de ferramenta. */
+/** user/assistant turns of the branch, oldest to newest, without tool blocks. */
 export function recentTurns(branch: readonly BranchEntry[]): Array<{ role: "USER" | "ASSISTANT"; text: string }> {
 	const turns: Array<{ role: "USER" | "ASSISTANT"; text: string }> = [];
 	for (const entry of branch) {
@@ -48,8 +48,8 @@ export function recentTurns(branch: readonly BranchEntry[]): Array<{ role: "USER
 }
 
 /**
- * Monta o bloco de contexto. Preenche do turno mais recente para trás até o
- * orçamento; depois renderiza em ordem cronológica.
+ * Builds the context block. Fills from the newest turn backward up to the
+ * budget; then renders in chronological order.
  */
 export function buildStartupContext(
 	branch: readonly BranchEntry[],

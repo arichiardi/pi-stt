@@ -1,106 +1,106 @@
-# ADR 0002 — Paridade com o `/voice` do Codex (realtime V2, duplo agente)
+# ADR 0002 - Parity with the Codex `/voice` (realtime V2, two agents)
 
-**Status:** proposta. Substitui a ADR 0001.
-**Referência:** `codex-rs` em `/home/movida/projetos/codex` (commit `c419fd01a7`).
+**Status:** proposed. Replaces ADR 0001.
+**Reference:** `codex-rs` at `/home/movida/projetos/codex` (commit `c419fd01a7`).
 
-## Contexto
+## Context
 
-A ADR 0001 pôs o modelo de voz só como "ouvido" e "boca": ele não respondia nem delegava, e a fala era síntese de texto do pi. Essa escolha divergia do Codex, que é a referência adotada. A regra desta ADR: decisões do Codex prevalecem, salvo quando forem incompatíveis com o pi ou com a linguagem (Node/TypeScript).
+ADR 0001 made the voice model only an ear and a mouth. It did not answer, and it did not delegate. Spoken output was text-to-speech of pi text. That choice diverged from Codex, which is the adopted reference. The rule for this ADR: Codex decisions win, unless they are incompatible with pi or with the language (Node/TypeScript).
 
-## Decisão
+## Decision
 
-Replicar a sessão realtime **V2** do Codex (default `RealtimeConversationVersion::V2`), com transporte WebSocket.
+Replicate the Codex **V2** realtime session (default `RealtimeConversationVersion::V2`), over a WebSocket transport.
 
-### 1. Sessão realtime (`session.update`)
+### 1. Realtime session (`session.update`)
 
-Fonte: `codex-api/src/endpoint/realtime_websocket/methods_v2.rs`.
+Source: `codex-api/src/endpoint/realtime_websocket/methods_v2.rs`.
 
 - `output_modalities: ["audio"]`.
-- Entrada: PCM 24 kHz, `noise_reduction: near_field`, transcrição `gpt-4o-mini-transcribe`.
-- VAD `server_vad` com `interrupt_response: true`, **`create_response: true`**, `silence_duration_ms: 500`.
+- Input: PCM 24 kHz, `noise_reduction: near_field`, transcription `gpt-4o-mini-transcribe`.
+- `server_vad` VAD with `interrupt_response: true`, **`create_response: true`**, `silence_duration_ms: 500`.
 - `tool_choice: "auto"`.
-- Voz default V2: `marin` (`protocol/src/protocol.rs:408`).
-- Modelo default: `gpt-realtime-1.5` (`core/src/realtime_conversation.rs:112`).
+- V2 default voice: `marin` (`protocol/src/protocol.rs:408`).
+- Default model: `gpt-realtime-1.5` (`core/src/realtime_conversation.rs:112`).
 
-**Diverge do estado atual:** `create_response: false` e instruções de "só ouvido" saem.
+**Diverges from current state:** drop `create_response: false` and the "ear only" instructions.
 
-### 2. Instruções
+### 2. Instructions
 
-- `instructions` = `backend_prompt.md` (identidade, política "delegue tudo", prefixos `[USER]`/`[BACKEND]`) + contexto de inicialização (`realtime_context.rs`, orçamento 5 300 tokens).
-- Ao iniciar, developer message com `realtime_start.md` ("Realtime conversation started…"). Ao encerrar, `realtime_end.md`.
-- O prompt diz explicitamente que trabalho passa pelo backend e nunca é recusado. Toda a política de delegação vem daí, não de código.
+- `instructions` = `backend_prompt.md` (identity, "delegate everything" policy, `[USER]`/`[BACKEND]` prefixes) + startup context (`realtime_context.rs`, 5,300 token budget).
+- On start, send a developer message with `realtime_start.md` ("Realtime conversation started…"). On end, send `realtime_end.md`.
+- The prompt states explicitly that work goes through the backend and is never refused. All delegation policy comes from there, not from code.
 
-### 3. Ferramentas
+### 3. Tools
 
-| Codex | Função |
+| Codex | Function |
 |---|---|
-| `background_agent(prompt)` | Ação padrão. Envia a fala do usuário (sem reescrever) ao agente. Se ocioso, inicia tarefa; se ocupado, faz *steer*. |
-| `remain_silent()` | Não falar após mensagens de controle ou atualizações silenciosas. |
+| `background_agent(prompt)` | Default action. Send the user's speech to the agent, with no rewrite. Start a task when idle; *steer* when busy. |
+| `remain_silent()` | Do not speak after control messages or silent updates. |
 
-Substitui `delegate_to_pi`.
+Replaces `delegate_to_pi`.
 
-### 4. Ciclo do handoff (V2)
+### 4. Handoff cycle (V2)
 
-Fonte: `realtime_conversation.rs` (`handle_handoff_output`, `RealtimeEventParser::RealtimeV2`).
+Source: `realtime_conversation.rs` (`handle_handoff_output`, `RealtimeEventParser::RealtimeV2`).
 
-- **Início:** `background_agent` vira turno com `<realtime_delegation><input>…</input><transcript_delta>…</transcript_delta></realtime_delegation>`. O `transcript_delta` são os turnos desde o último handoff.
-- **Progresso:** cada saída do agente vai como item `user` com prefixo `[BACKEND] `.
-- **Conclusão:** `function_call_output` com `"Background agent finished. Use the preceding [BACKEND] messages as the result."`, seguido de `response.create`.
-- **Steer (agente ocupado):** nova chamada recebe `function_call_output` `"This was sent to steer the previous background agent task."` e `response.create`.
-- **Fila de `response.create`:** só uma resposta ativa por vez (`RealtimeResponseCreateQueue`).
-- **Não falar o raciocínio:** só a resposta final é falada; canais de commentary vêm do BEM (ver lacunas).
+- **Start:** `background_agent` takes the turn with `<realtime_delegation><input>…</input><transcript_delta>…</transcript_delta></realtime_delegation>`. The `transcript_delta` holds the turns since the last handoff.
+- **Progress:** send each agent output as a `user` item with the `[BACKEND] ` prefix.
+- **Finish:** `function_call_output` with `"Background agent finished. Use the preceding [BACKEND] messages as the result."`, then `response.create`.
+- **Steer (agent busy):** the new call gets `function_call_output` `"This was sent to steer the previous background agent task."` and `response.create`.
+- **`response.create` queue:** only one active response at a time (`RealtimeResponseCreateQueue`).
+- **Do not speak the reasoning:** only the final answer is spoken; commentary channels come from the BEM (see gaps).
 
-**Diverge do estado atual:** hoje a resposta vira `[BACKEND] Agent Final Message` sem `function_call_output`. Sem o output da chamada, a API não fecha o ciclo da tool.
+**Diverges from current state:** today the response becomes `[BACKEND] Agent Final Message` with no `function_call_output`. Without the call output, the API does not close the tool cycle.
 
 ### 5. Barge-in
 
-Codex: ao `input_audio_buffer.speech_started`, envia `conversation.item.truncate` com `audio_end_ms` do que já tocou (`ResponseCancelled`/`OutputAudioState`). Não é só `response.cancel` + corte local.
+Codex: on `input_audio_buffer.speech_started`, send `conversation.item.truncate` with the `audio_end_ms` of what already played (`ResponseCancelled`/`OutputAudioState`). Do not use only `response.cancel` plus a local cut.
 
-### 6. Persistência e histórico
+### 6. Persistence and history
 
-- Codex grava `RealtimeItem` no rollout: `RealtimeSessionStarted`, `TranscriptSegment{role,text}`, `BemItemPromoted`, `RealtimeSessionClosed{outcome}` (`protocol/src/realtime.rs`).
-- Transcrição de fala é registrada também no **histórico do modelo** (`realtime_history.rs`, `transcript_tail.rs`). Diverge do README atual ("fora do contexto"), que fica revogado.
-- No fim da sessão, o trecho de transcrição não consumido vai ao Codex como `<realtime_delegation>` com `<source>transcript_tail_flush</source>`.
+- Codex writes `RealtimeItem` to the rollout: `RealtimeSessionStarted`, `TranscriptSegment{role,text}`, `BemItemPromoted`, `RealtimeSessionClosed{outcome}` (`protocol/src/realtime.rs`).
+- Speech transcription is also recorded in the **model history** (`realtime_history.rs`, `transcript_tail.rs`). This diverges from the current README ("outside the context"), which is now revoked.
+- At session end, send the unconsumed transcript tail to Codex as a `<realtime_delegation>` with `<source>transcript_tail_flush</source>`.
 
-### 7. Limites de tamanho
+### 7. Size limits
 
-Codex trunca: 4 KiB por campo de delegação; 1 000 tokens de saída do agente; 8 192 tokens para itens iniciais; 128 itens. Adotar os mesmos valores.
+Codex truncates: 4 KiB per delegation field; 1,000 tokens of agent output; 8,192 tokens for initial items; 128 items. Adopt the same values.
 
-## Lacunas e como fechar
+## Gaps and how to close them
 
-| # | Lacuna | Fonte Codex | Fechamento |
+| # | Gap | Codex source | Closure |
 |---|---|---|---|
-| L1 | Modelo não responde (`create_response: false`) | `methods_v2.rs` | Mudar para `true`; política no prompt. |
-| L2 | Instruções de "ouvido" | `prompts/templates/realtime/*.md` | Usar `backend_prompt.md` e `realtime_start.md`. |
-| L3 | Tool `delegate_to_pi` | `background_agent`, `remain_silent` | Renomear; adicionar `remain_silent`. |
-| L4 | Sem `function_call_output` / `response.create` | `handle_handoff_output` | Enviar nos três casos (conclusão, steer, silêncio). |
-| L5 | Sem fila de `response.create` | `RealtimeResponseCreateQueue` | Portar a fila. |
-| L6 | Barge-in sem truncate | `OutputAudioState` | Rastrear `item_id` e `audio_end_ms`. |
-| L7 | Transcrição fora do contexto do modelo | `realtime_history.rs` | Gravar no histórico do pi e no contexto. |
-| L8 | Sem transcript tail flush | `transcript_tail.rs` | Enviar resto ao encerrar. |
-| L9 | Sem startup context | `realtime_context.rs` | Montar: turnos recentes da sessão + cwd. |
-| L10 | Sem commentary/BEM | `bem.rs` | Fase FinalAnswer obrigatória; commentary não falado. |
-| L11 | Sem reconexão | `tui/src/app/reconnect.rs` | Portar após o fluxo básico. |
-| L12 | Sem steer em tarefa ativa | `REALTIME_V2_STEER_ACKNOWLEDGEMENT` | `deliverAs: steer` + ack. |
-| L13 | Modelo default `gpt-realtime` | `realtime_conversation.rs:112` | Trocar para `gpt-realtime-1.5`. |
+| L1 | Model does not answer (`create_response: false`) | `methods_v2.rs` | Set it to `true`; policy in the prompt. |
+| L2 | "Ear" instructions | `prompts/templates/realtime/*.md` | Use `backend_prompt.md` and `realtime_start.md`. |
+| L3 | Tool `delegate_to_pi` | `background_agent`, `remain_silent` | Rename it; add `remain_silent`. |
+| L4 | No `function_call_output` / `response.create` | `handle_handoff_output` | Send them in the three cases (finish, steer, silence). |
+| L5 | No `response.create` queue | `RealtimeResponseCreateQueue` | Port the queue. |
+| L6 | Barge-in without truncate | `OutputAudioState` | Track `item_id` and `audio_end_ms`. |
+| L7 | Transcription outside the model context | `realtime_history.rs` | Record it in pi history and in the context. |
+| L8 | No transcript tail flush | `transcript_tail.rs` | Send the rest at session end. |
+| L9 | No startup context | `realtime_context.rs` | Build it: recent session turns + cwd. |
+| L10 | No commentary/BEM | `bem.rs` | Make the FinalAnswer phase required; do not speak commentary. |
+| L11 | No reconnect | `tui/src/app/reconnect.rs` | Port it after the basic flow. |
+| L12 | No steer in an active task | `REALTIME_V2_STEER_ACKNOWLEDGEMENT` | `deliverAs: steer` + ack. |
+| L13 | Default model `gpt-realtime` | `realtime_conversation.rs:112` | Switch to `gpt-realtime-1.5`. |
 
-## Desvios justificados (pi / linguagem)
+## Justified deviations (pi / language)
 
-- **Transporte WebSocket, não WebRTC.** O Codex suporta `transport = "websocket"` (`config_toml.rs`). Node não tem WebRTC nativo com Opus/AEC equivalente ao helper `voice-host`. Revisitar se a medição acústica falhar.
-- **Captura e AEC por PipeWire** (`parec`/`pacat` + `module-echo-cancel`), não `voice-host`. Só Linux, como já declarado.
-- **Sem voice owner entre threads.** O pi tem uma sessão ativa por `/voice`; `background_voice` fica fora do escopo.
-- **Persistência via `pi.appendEntry`** em vez de rollout do Codex.
+- **WebSocket transport, not WebRTC.** Codex supports `transport = "websocket"` (`config_toml.rs`). Node has no native WebRTC with Opus/AEC equivalent to the `voice-host` helper. Revisit this if the acoustic measurement fails.
+- **Capture and AEC through PipeWire** (`parec`/`pacat` + `module-echo-cancel`), not `voice-host`. Linux only, as already stated.
+- **No voice owner across threads.** pi has one active session per `/stt-live`; `background_voice` stays out of scope.
+- **Persistence through `pi.appendEntry`** instead of the Codex rollout.
 
-## Consequências
+## Consequences
 
-- Muda o papel da voz: o modelo conversa e delega. A ADR 0001 é superada, e o trabalho em andamento de TTS/ponte (`speech.ts`, `bridge.ts`, `docs/plano-implementacao.md`) deixa de ser o caminho.
-- Latência de conversa simples cai. Risco: o modelo responder algo que deveria ir ao agente. A política do prompt é o controle; deve ser testada.
-- Muda `GLOSSARY.md` (termos: `background_agent`, handoff, steer, `[BACKEND]`).
+- The role of voice changes: the model talks and delegates. ADR 0001 is superseded, and the ongoing TTS/bridge work (`speech.ts`, `bridge.ts`, `docs/plano-implementacao.md`) is no longer the path.
+- Latency for simple conversation drops. Risk: the model answers something that should go to the agent. The prompt policy is the control, and it must be tested.
+- Changes `glossary.md` (terms: `background_agent`, handoff, steer, `[BACKEND]`).
 
-## Critério de sucesso
+## Success criteria
 
-1. Pedido de código sai como `background_agent` com `<realtime_delegation>` e volta com `function_call_output` + resposta falada.
-2. Fala durante execução gera `steer` com ack, sem cancelar a execução.
-3. Fala interrompida corta o áudio e registra `conversation.item.truncate`.
-4. Transcrição aparece no histórico do pi e no contexto do modelo.
-5. Fim de sessão envia `transcript_tail_flush`.
+1. A coding request leaves as `background_agent` with `<realtime_delegation>`, and returns with `function_call_output` plus a spoken answer.
+2. Speech during a running task produces `steer` with an ack, and does not cancel the task.
+3. Interrupted speech cuts the audio and records `conversation.item.truncate`.
+4. Transcription appears in pi history and in the model context.
+5. Session end sends `transcript_tail_flush`.

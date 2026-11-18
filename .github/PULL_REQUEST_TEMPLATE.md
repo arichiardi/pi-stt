@@ -1,12 +1,12 @@
-## O que muda
+## What changes
 
-## Por quê
+## Why
 
-## Como foi testado
-- [ ] `npm run test:unit` passa
-- [ ] Testado em Linux (informe a distro):
-- [ ] Mudança de áudio/realtime: como foi verificada (testes simulados não provam áudio audível)
+## How it was tested
+- [ ] `npm run test:unit` passes
+- [ ] Tested on Linux (report the distro):
+- [ ] Audio/realtime change: how it was verified (simulated tests do not prove audible audio)
 
 ## Checklist
-- [ ] Sem credenciais, `voice.json` ou caminhos pessoais no diff
-- [ ] Mudança de API pública ou de configuração documentada no README
+- [ ] No credentials, `stt.json`, or personal paths in the diff
+- [ ] Public API or config change documented in the README

@@ -1,12 +1,9 @@
 /**
- * Sessão realtime V2 (`/v1/realtime`) — equivalente de
- * `codex-rs/core/src/realtime_conversation.rs` (RealtimeWsVersion::V2) e de
- * `codex-api/src/endpoint/realtime_websocket/methods_v2.rs`.
+ * Realtime session V2 (`/v1/realtime`).
  *
- * Divergências conscientes do Codex (ADR 0002):
- * 1. Auth: API key (`OPENAI_API_KEY`) em vez de ChatGPT + `intent=quicksilver`.
- * 2. Transporte: WebSocket PCM16 em vez de WebRTC (Node não tem o helper nativo).
- * Todo o resto do payload e do ciclo de handoff segue o Codex.
+ * Mirrors the Codex realtime design. Conscious divergences (ADR 0004):
+ * 1. Auth: API key (`OPENAI_API_KEY`) instead of ChatGPT + `intent=quicksilver`.
+ * 2. Transport: WebSocket PCM16 instead of WebRTC (Node has no native helper).
  */
 
 import type { VoiceSettings } from "./config.ts";
@@ -25,7 +22,7 @@ export type VoiceEvent =
 	| { kind: "error"; message: string; dialectHint: boolean }
 	| { kind: "other"; type: string };
 
-/** Ferramentas da V2 (methods_v2.rs). Nome e descrição idênticos ao Codex. */
+/** V2 tools. Names and descriptions are fixed by the Realtime API. */
 export const BACKGROUND_AGENT_TOOL = "background_agent";
 export const REMAIN_SILENT_TOOL = "remain_silent";
 
@@ -34,15 +31,15 @@ const BACKGROUND_AGENT_DESCRIPTION =
 const REMAIN_SILENT_DESCRIPTION =
 	"Call this when the best response is to say nothing. Use it instead of speaking after hidden system/control messages, after background agent updates in silent modes, or whenever acknowledging aloud would be distracting. This tool has no user-visible effect.";
 
-/** Transcrição de entrada usada pelo Codex na V2. */
+/** Input transcription model for V2. */
 export const INPUT_TRANSCRIPTION_MODEL = "gpt-4o-mini-transcribe";
 
-/** Taxa do PCM16 mono (24 kHz) usada pelo Codex. */
+/** PCM16 mono rate (24 kHz). */
 const PCM_RATE = 24_000;
 
 /**
- * Normaliza um evento cru da API GA (`response.output_audio.*`).
- * Nomes beta não são mais enviados: a V2 do Codex usa só o formato GA.
+ * Normalizes a raw GA API event (`response.output_audio.*`).
+ * Beta names are no longer sent: V2 uses only the GA format.
  */
 export function parseRealtimeEvent(raw: unknown): VoiceEvent | null {
 	if (typeof raw !== "object" || raw === null) return null;
@@ -82,7 +79,7 @@ export function parseRealtimeEvent(raw: unknown): VoiceEvent | null {
 
 		case "error": {
 			const message = String(event.error?.message ?? event.message ?? "erro realtime");
-			// Pistas de payload errado são reportadas, não corrigidas em silêncio.
+			// Wrong-payload hints are reported, not silently fixed.
 			const dialectHint = /unknown (parameter|field)|not supported|invalid (value|type)|audio.*(format|config)/i.test(message);
 			return { kind: "error", message, dialectHint };
 		}
@@ -108,14 +105,14 @@ export function parseRealtimeEvent(raw: unknown): VoiceEvent | null {
 	}
 }
 
-/** Instruções de sessão = backend_prompt (+ contexto de inicialização), como no Codex. */
+/** Session instructions = backend_prompt (+ startup context). */
 export function buildInstructions(backendPrompt: string, startupContext = ""): string {
 	return startupContext.trim() ? `${backendPrompt.trim()}\n\n${startupContext.trim()}` : backendPrompt.trim();
 }
 
 /**
- * Payload de `session.update` da V2 (methods_v2.rs, modo conversacional).
- * `model` vai na URL, como no Codex.
+ * `session.update` payload for V2 (conversational mode).
+ * `model` goes in the URL.
  */
 export function buildSessionUpdate(
 	settings: VoiceSettings,
@@ -132,7 +129,9 @@ export function buildSessionUpdate(
 					format: { type: "audio/pcm", rate: PCM_RATE },
 					noise_reduction: { type: "near_field" },
 					transcription: { model: INPUT_TRANSCRIPTION_MODEL },
-					turn_detection: {
+					// Active client VAD => the server detects no boundaries. Without this,
+					// server_vad + client commit create double boundaries (R2).
+					turn_detection: settings.vad && settings.vad.engine !== "off" ? null : {
 						type: "server_vad",
 						interrupt_response: true,
 						create_response: true,
@@ -170,7 +169,7 @@ export function buildSessionUpdate(
 	};
 }
 
-/** Item de desenvolvedor injetado ao iniciar (realtime_start.md). */
+/** Developer item injected at start (realtime_start.md). */
 export function developerItem(text: string): Record<string, unknown> {
 	return {
 		type: "conversation.item.create",
@@ -181,25 +180,25 @@ export function developerItem(text: string): Record<string, unknown> {
 export interface RealtimeSessionOptions {
 	apiKey: string;
 	settings: VoiceSettings;
-	/** Instruções completas (backend prompt + contexto de inicialização). */
+	/** Full instructions (backend prompt + startup context). */
 	instructions: string;
-	/** Item de desenvolvedor enviado após `session.updated` (início da sessão). */
+	/** Developer item sent after `session.updated` (session start). */
 	startItem?: string;
-	/** Abertura do socket. Padrão: `openRealtimeSocket`; injetável para teste. */
+	/** Socket opener. Default: `openRealtimeSocket`; injectable for tests. */
 	openSocket?: (options: OpenSocketOptions) => Promise<VoiceSocket>;
 	onEvent: (event: VoiceEvent) => void;
-	/** Só chamado depois de pronta. Falhas antes disso são rejeitadas por `connect()`. */
+	/** Called only after ready. Failures before that are rejected by `connect()`. */
 	onClose?: (reason: string) => void;
 }
 
-/** Tempo máximo para socket abrir e a sessão ser configurada. */
+/** Max time for the socket to open and the session to be configured. */
 export const CONNECT_TIMEOUT_MS = 15_000;
 
 /**
- * Ciclo de vida:
- *   idle → connecting → configuring (session.update enviado, aguarda session.updated)
+ * Lifecycle:
+ *   idle → connecting → configuring (session.update sent, awaits session.updated)
  *        → ready → closed (terminal)
- * Nada é enviado fora de `configuring`/`ready`, e `send` nunca lança para fora.
+ * Nothing is sent outside `configuring`/`ready`, and `send` never throws outward.
  */
 type SessionState = "idle" | "connecting" | "configuring" | "ready" | "closed";
 
@@ -207,11 +206,11 @@ export class RealtimeSession {
 	private socket: VoiceSocket | undefined;
 	private state: SessionState = "idle";
 	private setup: { resolve: () => void; reject: (error: Error) => void } | undefined;
-	/** Há resposta do modelo em andamento (response.created … response.done). */
+	/** A model response is in progress (response.created … response.done). */
 	private responseActive = false;
-	/** Um `response.create` foi pedido enquanto havia resposta ativa (fila de 1, como o Codex). */
+	/** A `response.create` was requested while a response was active (queue of 1). */
 	private createPending = false;
-	/** Áudio de saída da resposta corrente, para truncar no barge-in. */
+	/** Output audio of the current response, to truncate on barge-in. */
 	private outputAudio: { itemId: string; audioEndMs: number } | undefined;
 	private readonly options: RealtimeSessionOptions;
 
@@ -223,7 +222,7 @@ export class RealtimeSession {
 		return this.socket?.transport;
 	}
 
-	/** Resolve só quando `session.updated` chega. Rejeita em erro, fechamento ou timeout. */
+	/** Resolves only when `session.updated` arrives. Rejects on error, close, or timeout. */
 	connect(): Promise<void> {
 		if (this.state !== "idle") return Promise.reject(new Error("sessão realtime já iniciada"));
 		this.state = "connecting";
@@ -290,7 +289,7 @@ export class RealtimeSession {
 			this.setup?.resolve();
 		}
 
-		// Barge-in: `interrupt_response` cancela no servidor; aqui só truncamos o áudio já emitido.
+		// Barge-in: `interrupt_response` cancels on the server; here we only truncate already emitted audio.
 		if (type === "input_audio_buffer.speech_started") this.truncateOutputAudio();
 
 		const event = parseRealtimeEvent(parsed);
@@ -327,7 +326,7 @@ export class RealtimeSession {
 		});
 	}
 
-	/** Envia um evento. Retorna false sem lançar quando não há envio possível. */
+	/** Sends an event. Returns false without throwing when no send is possible. */
 	private send(event: Record<string, unknown>): boolean {
 		const socket = this.socket;
 		if (!socket || !socket.isOpen()) {
@@ -367,19 +366,37 @@ export class RealtimeSession {
 		try {
 			socket?.close();
 		} catch {
-			// já fechado
+			// already closed
 		}
 	}
 
-	/** Envia áudio só quando pronta. */
+	/** Sends audio only when ready. */
 	appendAudio(frame: Buffer): void {
 		if (this.state !== "ready") return;
 		this.send({ type: "input_audio_buffer.append", audio: frame.toString("base64") });
 	}
 
 	/**
-	 * Pede uma resposta falada. Se já há uma em andamento, fica pendente e é
-	 * enviada ao `response.done` (`RealtimeResponseCreateQueue` do Codex).
+	 * Closes the user turn: sends `input_audio_buffer.commit` only when
+	 * ready. Used by the client VAD gate at the commit point (end of speech).
+	 */
+	commit(): void {
+		if (this.state !== "ready") return;
+		this.send({ type: "input_audio_buffer.commit" });
+	}
+
+	/**
+	 * Commits the turn and, if `vad.commitResponse`, requests the spoken response. Reuses
+	 * the `createResponse` queue (one response at a time).
+	 */
+	commitAndRespond(): void {
+		this.commit();
+		if (this.options.settings.vad?.commitResponse) this.createResponse();
+	}
+
+	/**
+	 * Requests a spoken response. If one is already in progress, it stays pending and is
+	 * sent on `response.done` (response-create queue).
 	 */
 	createResponse(): void {
 		if (this.state !== "ready") return;
@@ -391,7 +408,7 @@ export class RealtimeSession {
 		this.send({ type: "response.create" });
 	}
 
-	/** Resultado de uma chamada de função (`background_agent`, `remain_silent`). */
+	/** Result of a function call (`background_agent`, `remain_silent`). */
 	functionCallOutput(callId: string, output: string): void {
 		if (this.state !== "ready") return;
 		this.send({
@@ -400,7 +417,7 @@ export class RealtimeSession {
 		});
 	}
 
-	/** Texto digitado do usuário (mesmo papel que a transcrição de voz). Usado em testes E2E. */
+	/** Typed user text (same role as voice transcription). Used in E2E tests. */
 	userText(text: string): void {
 		if (this.state !== "ready") return;
 		this.send({
@@ -409,13 +426,13 @@ export class RealtimeSession {
 		});
 	}
 
-	/** Mensagem de desenvolvedor (início/fim da conversa, `realtime_start.md`/`realtime_end.md`). */
+	/** Developer message (conversation start/end, `realtime_start.md`/`realtime_end.md`). */
 	developerText(text: string): void {
 		if (this.state !== "ready") return;
 		this.send(developerItem(text));
 	}
 
-	/** Item `[BACKEND] ` do Codex: progresso ou resultado do agente, lido pelo modelo como usuário. */
+	/** `[BACKEND] ` item: agent progress or result, read by the model as user. */
 	backendItem(text: string): void {
 		if (this.state !== "ready") return;
 		this.send({
@@ -424,7 +441,7 @@ export class RealtimeSession {
 		});
 	}
 
-	/** Encerramento pedido pelo usuário: não dispara `onClose`. */
+	/** User-requested close: does not trigger `onClose`. */
 	close(): void {
 		if (this.state === "closed") return;
 		this.state = "closed";

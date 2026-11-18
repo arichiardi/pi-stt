@@ -1,7 +1,7 @@
 /**
- * Regressão: o handshake enviava `OpenAI-Beta: realtime=v1` mesmo no dialeto GA,
- * e a API recusa com "The Realtime Beta API is no longer supported".
- * Rodar: node --test --experimental-strip-types ~/.pi/agent/extensions/voice/tests/
+ * Regression: the handshake sent `OpenAI-Beta: realtime=v1` even on the GA dialect.
+ * The API rejects it with "The Realtime Beta API is no longer supported".
+ * Run: node --test --experimental-strip-types ~/.pi/agent/extensions/voice/tests/
  */
 
 import assert from "node:assert/strict";

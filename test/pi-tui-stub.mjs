@@ -1,4 +1,4 @@
-// Stub de teste para @earendil-works/pi-tui: só o necessário para importar index.ts sem a UI real.
+// Test stub for @earendil-works/pi-tui: only what is needed to import index.ts without the real UI.
 export class Text {
 	constructor(text) {
 		this.text = text;

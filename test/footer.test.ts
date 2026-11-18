@@ -1,4 +1,4 @@
-/** Testes do medidor de voz: escala perceptual, onda com histórico e largura fixa. */
+/** Voice meter tests: perceptual scale, wave with history, fixed width. */
 import assert from "node:assert/strict";
 import { register } from "node:module";
 import { test } from "node:test";
@@ -64,7 +64,7 @@ test("atalho para parar permanece inteiro na largura disponível", () => {
 	try {
 		const header = widget.render(60)[0];
 		assert.ok(header.length <= 60, `cabeçalho ocupa ${header.length} colunas`);
-		assert.ok(header.endsWith("/voice stop"));
+		assert.ok(header.endsWith("/stt-live stop"));
 	} finally { widget.dispose(); }
 });
 

@@ -1,6 +1,6 @@
 /**
- * Testes offline do framing PCM (o equivalente ao empacotamento de 256 amostras
- * que o `codex-voice-host` faz para atravessar callbacks irregulares do backend).
+ * Offline tests for PCM framing (the equivalent of the 256 sample packing
+ * that the host uses to cross irregular backend callbacks).
  */
 
 import assert from "node:assert/strict";

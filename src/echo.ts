@@ -42,7 +42,7 @@ export async function openEchoAudio(run: Run = pactl): Promise<EchoAudio> {
  let closed = false;
  const format = ['--raw', '--format=s16le', '--rate=24000', '--channels=1'];
  return {
-  // O padrão do parec acumula segundos de áudio, congelando o medidor entre blocos.
+  // The parec default buffers seconds of audio, freezing the meter between blocks.
   capture: { command: 'parec', args: [...format, '--latency-msec=30', `--device=${source}`] },
   playback: { command: 'pacat', args: ['--playback', ...format, `--device=${sink}`] },
   async close() {

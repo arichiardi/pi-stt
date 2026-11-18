@@ -1,15 +1,15 @@
 /**
- * Transporte WebSocket da sessão de voz.
+ * WebSocket transport for the voice session.
  *
- * Fiel ao Codex: usa a biblioteca `ws` com header `Authorization`. O header
- * `OpenAI-Beta: realtime=v1` só é enviado no dialeto beta (endpoint legado).
+ * Mirrors the Codex realtime design: uses the `ws` library with an `Authorization` header. The
+ * `OpenAI-Beta: realtime=v1` header is sent only in the beta dialect (legacy endpoint).
  *
- * O `ws` não é resolvível por `import("ws")` a partir do diretório da extensão,
- * mas é por `createRequire(process.argv[1])` — o entrypoint do pi, que é o dono
- * do `node_modules` onde ele vive. Se essa resolução falhar (execução fora do
- * pi, instalação alterada), caímos no `WebSocket` global do Node, que não aceita
- * headers: nesse caso a API key é trocada por um client secret efêmero enviado
- * em subprotocolo. O modo usado aparece em `/voice status`.
+ * `ws` is not resolvable by `import("ws")` from the extension directory,
+ * but it is by `createRequire(process.argv[1])` - the pi entrypoint, which owns
+ * the `node_modules` where it lives. If that resolution fails (running outside
+ * pi, altered install), we fall back to the Node global `WebSocket`, which does not accept
+ * headers: in that case the API key is swapped for an ephemeral client secret sent
+ * in a subprotocol. The mode used is shown in `/stt-live status`.
  */
 
 import { createRequire } from "node:module";
@@ -32,13 +32,13 @@ export interface SocketHandlers {
 
 export interface VoiceSocket {
 	readonly transport: TransportInfo;
-	/** true só no estado OPEN. `send()` fora dele lança (`ws` e WebSocket global). */
+	/** true only in the OPEN state. `send()` outside it throws (`ws` and global WebSocket). */
 	isOpen(): boolean;
 	send(data: string): void;
 	close(): void;
 }
 
-/** WebSocket.OPEN é 1 nas duas implementações. */
+/** WebSocket.OPEN is 1 in both implementations. */
 const WS_OPEN = 1;
 
 interface WsLike {
@@ -53,7 +53,7 @@ type WsCtor = new (
 	options: { headers: Record<string, string> },
 ) => WsLike;
 
-/** Carrega `ws` a partir do node_modules do pi. */
+/** Load `ws` from the pi node_modules. */
 export function loadWs(): WsCtor | undefined {
 	const candidates = [process.argv[1], process.execPath].filter(Boolean) as string[];
 	for (const candidate of candidates) {
@@ -62,7 +62,7 @@ export function loadWs(): WsCtor | undefined {
 			const ctor = (resolved as { default?: WsCtor }).default ?? (resolved as WsCtor);
 			if (typeof ctor === "function") return ctor;
 		} catch {
-			// tenta o próximo
+			// try the next one
 		}
 	}
 	return undefined;
@@ -99,8 +99,8 @@ async function mintEphemeralKey(apiKey: string, model: string): Promise<string> 
 export type SocketDialect = "ga" | "beta";
 
 /**
- * Headers do handshake. GA (`/v1/realtime`) só aceita Authorization: o header
- * `OpenAI-Beta` faz a API recusar com "The Realtime Beta API is no longer supported".
+ * Handshake headers. GA (`/v1/realtime`) accepts only Authorization: the
+ * `OpenAI-Beta` header makes the API reject with "The Realtime Beta API is no longer supported".
  */
 export function buildHandshakeHeaders(apiKey: string, dialect: SocketDialect): Record<string, string> {
 	const headers: Record<string, string> = { Authorization: `Bearer ${apiKey}` };
@@ -108,7 +108,7 @@ export function buildHandshakeHeaders(apiKey: string, dialect: SocketDialect): R
 	return headers;
 }
 
-/** Subprotocolos do caminho sem header (client secret efêmero). */
+/** Subprotocols for the headerless path (ephemeral client secret). */
 export function buildSubprotocols(secret: string, dialect: SocketDialect): string[] {
 	const protocols = ["realtime", `openai-insecure-api-key.${secret}`];
 	if (dialect === "beta") protocols.push("openai-beta.realtime-v1");

@@ -1,38 +1,38 @@
-# Contribuindo
+# Contributing
 
-Obrigado por ajudar. Este pacote é **alpha** e **Linux-only** no caminho ativo.
+Thanks for helping. This package is **alpha** and **Linux-only** on the active path.
 
-## Antes de começar
+## Before you start
 
-Para mudanças maiores que um bug pequeno, abra uma issue antes de escrever código. Isso evita trabalho descartado.
+For any change bigger than a small bug, open an issue before you write code. This avoids wasted work.
 
-## Rodar os testes
+## Run the tests
 
-Requer Node 24 (ou 22.6+ com `--experimental-strip-types`).
+Needs Node 24 (or 22.6+ with `--experimental-strip-types`).
 
 ```bash
 npm install
-npm run test:unit        # bloqueante no CI
-npm test                 # inclui integração (pendente, ver abaixo)
+npm run test:unit        # blocking in CI
+npm test                 # includes integration (pending, see below)
 ```
 
-Os testes de integração ainda não rodam contra o código atual: esperam injeção de dependências em `index.ts` que não existe. Contribuições que implementem esse seam são bem-vindas.
+The integration tests do not run against the current code: they expect dependency injection in `index.ts` that does not exist. Contributions that add this seam are welcome.
 
-## Padrão de commits
+## Commit style
 
 [Conventional Commits](https://www.conventionalcommits.org/): `feat:`, `fix:`, `docs:`, `test:`, `chore:`.
 
 ## Pull requests
 
-- Um assunto por PR.
-- O CI de testes unitários precisa passar.
-- Mudanças de áudio ou de protocolo realtime precisam explicar como foram verificadas. Testes simulados não provam áudio audível.
-- Nunca commite `voice.json`, `auth.json`, arquivos de ambiente ou chaves de API.
+- One topic per PR.
+- The unit test CI must pass.
+- Audio changes and realtime protocol changes must explain how you verified them. Simulated tests do not prove audible audio.
+- Never commit `voice.json`, `auth.json`, environment files, or API keys.
 
-## Segurança
+## Security
 
-Não abra issue pública para vulnerabilidades. Veja [SECURITY.md](SECURITY.md).
+Do not open a public issue for vulnerabilities. See [SECURITY.md](SECURITY.md).
 
-## Licença
+## License
 
-Ao contribuir, você concorda que sua contribuição é licenciada sob MIT.
+When you contribute, you agree that your contribution is licensed under MIT.
