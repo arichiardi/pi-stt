@@ -10,8 +10,8 @@ import { register } from "node:module";
 import { afterEach, beforeEach, test } from "node:test";
 
 register("./stub-hooks.mjs", import.meta.url);
-const { default: voiceExtension } = await import("../index.ts");
-const { HANDOFF_COMPLETE_ACK, STEER_ACK } = await import("../delegation.ts");
+const { default: voiceExtension } = await import("../src/index.ts");
+const { HANDOFF_COMPLETE_ACK, STEER_ACK } = await import("../src/delegation.ts");
 
 type Handler = (event: any, ctx: any) => unknown;
 

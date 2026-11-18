@@ -4,7 +4,7 @@ import { register } from "node:module";
 import { test } from "node:test";
 
 register("./stub-hooks.mjs", import.meta.url);
-const { createVoiceWidget, AutoGain, envelope, levelToUnit, meter, wave } = await import("../footer.ts");
+const { createVoiceWidget, AutoGain, envelope, levelToUnit, meter, wave } = await import("../src/footer.ts");
 
 test("fala típica (RMS 0.02–0.1) gera barras acima do piso", () => {
 	for (const rms of [0.02, 0.05, 0.1]) assert.ok(levelToUnit(rms) > 0.2, `rms ${rms}`);

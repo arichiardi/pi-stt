@@ -14,11 +14,12 @@
 		"node": ">=22.6"
 	},
 	"scripts": {
-		"test": "node --test --experimental-strip-types tests/*.test.ts",
-		"test:unit": "node --test --experimental-strip-types $(ls tests/*.test.ts | grep -v integration)"
+		"typecheck": "tsc --noEmit",
+		"test": "node --test \"test/**/*.test.ts\""
 	},
 	"keywords": [
 		"pi-package",
+		"pi-extension",
 		"pi",
 		"stt",
 		"asr",
@@ -31,21 +32,17 @@
 	"license": "MIT",
 	"private": false,
 	"type": "module",
-	"os": [
-		"linux"
-	],
 	"files": [
-		"*.ts",
+		"src",
 		"README.md",
 		"CHANGELOG.md",
 		"LICENSE",
 		"GLOSSARY.md",
-		"prompts/**",
 		"docs/**"
 	],
 	"pi": {
 		"extensions": [
-			"./index.ts"
+			"./src/index.ts"
 		],
 		"image": "https://raw.githubusercontent.com/IgorGuariroba/pi-voice-realtime/main/docs/media/preview.png",
 		"video": "https://raw.githubusercontent.com/IgorGuariroba/pi-voice-realtime/main/docs/media/demo.mp4",
@@ -53,6 +50,11 @@
 	},
 	"dependencies": {
 		"ws": "^8.18.0"
+	},
+	"devDependencies": {
+		"@earendil-works/pi-coding-agent": "0.79.10",
+		"@types/node": "^25.6.0",
+		"typescript": "^6.0.3"
 	},
 	"peerDependencies": {
 		"@earendil-works/pi-coding-agent": "*",

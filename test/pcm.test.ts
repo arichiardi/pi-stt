@@ -15,7 +15,7 @@ import {
 	captureBackend,
 	playBackend,
 	rmsLevel,
-} from "../audio.ts";
+} from "../src/audio.ts";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const fixture = JSON.parse(readFileSync(join(here, "fixtures/pcm-frames.json"), "utf8")) as {

@@ -8,9 +8,9 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { DEFAULT_SETTINGS } from "../config.ts";
-import { RealtimeSession, type VoiceEvent } from "../realtime.ts";
-import type { OpenSocketOptions, VoiceSocket } from "../socket.ts";
+import { DEFAULT_SETTINGS } from "../src/config.ts";
+import { RealtimeSession, type VoiceEvent } from "../src/realtime.ts";
+import type { OpenSocketOptions, VoiceSocket } from "../src/socket.ts";
 
 const CONNECTING = 0;
 const OPEN = 1;

@@ -11,7 +11,7 @@ import {
 	finalAnswerText,
 	unwrapDelegation,
 	wrapDelegation,
-} from "../delegation.ts";
+} from "../src/delegation.ts";
 
 test("delegação gera o envelope do Codex", () => {
 	assert.equal(

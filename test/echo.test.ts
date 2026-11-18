@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { openEchoAudio, EchoCleanup } from '../echo.ts';
+import { openEchoAudio, EchoCleanup } from '../src/echo.ts';
 
 test('cleanup retains failed handles for retry', async () => {
  const cleanup = new EchoCleanup();

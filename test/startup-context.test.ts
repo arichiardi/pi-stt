@@ -4,7 +4,7 @@
  */
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { buildStartupContext, recentTurns } from "../startup-context.ts";
+import { buildStartupContext, recentTurns } from "../src/startup-context.ts";
 
 const msg = (role: string, content: unknown) => ({ type: "message", message: { role, content } });
 

@@ -106,7 +106,7 @@ the processes and request module unload. If AEC does not load, the session does
 not fall back to raw capture.
 
 macOS/Windows are not supported by the current AEC path. The older
-backend-selection functions remain in `audio.ts`, but `/voice` does not use them.
+backend-selection functions remain in `src/audio.ts`, but `/voice` does not use them.
 
 This backend uses WebRTC AEC from the audio server. It is not the same Sonora
 helper as Codex. Creating the routes does not prove echo reduction. Acoustic
@@ -121,7 +121,7 @@ measurement and speaker validation are still pending.
 | WebRTC (SDP/ICE) | WebSocket PCM16 | same model and same VAD; avoids native `wrtc` |
 | Rust helper + Sonora AEC + GStreamer + Opus | PulseAudio/PipeWire WebRTC AEC + `parec`/`pacat` | Linux backend, no proven acoustic parity |
 | V2 handoff (`background_agent`, `remain_silent`) | same tools, same return texts | parity (ADR 0002) |
-| `codex-realtime-webrtc` module | `socket.ts` + `realtime.ts` + `audio.ts` | — |
+| `codex-realtime-webrtc` module | `src/socket.ts` + `src/realtime.ts` + `src/audio.ts` | — |
 
 ### Transport
 
@@ -157,7 +157,7 @@ the agent history, and `remain_silent`.
 ## Tests
 
 ```bash
-node --test --experimental-strip-types tests/*.test.ts
+node --test "test/**/*.test.ts"
 ```
 
 The suite also covers realtime session lifecycle, the GA handshake, and AEC
@@ -167,7 +167,7 @@ do not measure canceler acoustic performance.
 Offline coverage: GA event parser with a fixture, V2 `session.update` payload
 (VAD, tools, instructions), delegation envelope, `response.create` queue,
 truncate on barge-in, handoff cycle with a fake socket
-(`tests/integration.test.ts`), startup context, and PCM framing.
+(`test/integration.test.ts`), startup context, and PCM framing.
 
 ## Validation status
 

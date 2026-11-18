@@ -9,9 +9,9 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { DEFAULT_SETTINGS } from "../config.ts";
-import { BACKGROUND_AGENT_TOOL, REMAIN_SILENT_TOOL, buildInstructions, buildSessionUpdate, developerItem, parseRealtimeEvent } from "../realtime.ts";
-import { backendPrompt, START_INSTRUCTIONS, END_INSTRUCTIONS } from "../prompts.ts";
+import { DEFAULT_SETTINGS } from "../src/config.ts";
+import { BACKGROUND_AGENT_TOOL, REMAIN_SILENT_TOOL, buildInstructions, buildSessionUpdate, developerItem, parseRealtimeEvent } from "../src/realtime.ts";
+import { backendPrompt, START_INSTRUCTIONS, END_INSTRUCTIONS } from "../src/prompts.ts";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const fixture = JSON.parse(readFileSync(join(here, "fixtures/realtime-events.json"), "utf8")) as Array<{

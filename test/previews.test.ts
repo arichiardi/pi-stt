@@ -4,7 +4,7 @@ import { existsSync, mkdtempSync, readFileSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { ensurePreview, previewPath, PREVIEW_MODEL } from "../previews.ts";
+import { ensurePreview, previewPath, PREVIEW_MODEL } from "../src/previews.ts";
 
 const pcmResponse = (bytes: number[], status = 200) =>
 	new Response(Buffer.from(bytes), { status });

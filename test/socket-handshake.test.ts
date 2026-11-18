@@ -6,7 +6,7 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { buildHandshakeHeaders, buildSubprotocols } from "../socket.ts";
+import { buildHandshakeHeaders, buildSubprotocols } from "../src/socket.ts";
 
 test("GA: handshake não envia header beta", () => {
 	const headers = buildHandshakeHeaders("test-key", "ga");
