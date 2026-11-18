@@ -1,0 +1,72 @@
+{
+	"name": "@ar-llm/pi-stt",
+	"version": "0.1.0",
+	"description": "Speech-to-text for pi: full-duplex realtime voice (OpenAI Realtime /v1/realtime) plus, in time, transcription agent tools. Started from a fork of pi-voice-realtime.",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/arichiardi/pi-stt.git"
+	},
+	"homepage": "https://github.com/arichiardi/pi-stt#readme",
+	"bugs": {
+		"url": "https://github.com/arichiardi/pi-stt/issues"
+	},
+	"engines": {
+		"node": ">=22.6"
+	},
+	"scripts": {
+		"test": "node --test --experimental-strip-types tests/*.test.ts",
+		"test:unit": "node --test --experimental-strip-types $(ls tests/*.test.ts | grep -v integration)"
+	},
+	"keywords": [
+		"pi-package",
+		"pi",
+		"stt",
+		"asr",
+		"voice",
+		"realtime",
+		"openai",
+		"speech",
+		"transcription"
+	],
+	"license": "MIT",
+	"private": false,
+	"type": "module",
+	"os": [
+		"linux"
+	],
+	"files": [
+		"*.ts",
+		"README.md",
+		"CHANGELOG.md",
+		"LICENSE",
+		"GLOSSARY.md",
+		"prompts/**",
+		"docs/**"
+	],
+	"pi": {
+		"extensions": [
+			"./index.ts"
+		],
+		"image": "https://raw.githubusercontent.com/IgorGuariroba/pi-voice-realtime/main/docs/media/preview.png",
+		"video": "https://raw.githubusercontent.com/IgorGuariroba/pi-voice-realtime/main/docs/media/demo.mp4",
+		"changelog": "https://github.com/arichiardi/pi-stt/blob/main/CHANGELOG.md"
+	},
+	"dependencies": {
+		"ws": "^8.18.0"
+	},
+	"peerDependencies": {
+		"@earendil-works/pi-coding-agent": "*",
+		"@earendil-works/pi-ai": "*",
+		"@earendil-works/pi-tui": "*",
+		"@earendil-works/pi-agent-core": "*",
+		"typebox": "*"
+	},
+	"peerDependenciesMeta": {
+		"@earendil-works/pi-agent-core": {
+			"optional": true
+		},
+		"typebox": {
+			"optional": true
+		}
+	}
+}
