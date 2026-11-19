@@ -10,7 +10,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { createReadStream, existsSync, mkdirSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { playBackend } from "./audio.ts";
-import { agentDir, type VoiceName } from "./config.ts";
+import { agentDir } from "./config.ts";
 
 const TTS_API_BASE = "https://api.openai.com/v1";
 
@@ -23,7 +23,7 @@ export function previewDir(): string {
 	return join(agentDir(), "voice", "previews");
 }
 
-export function previewPath(voice: VoiceName, dir: string = previewDir()): string {
+export function previewPath(voice: string, dir: string = previewDir()): string {
 	return join(dir, `${voice}.pcm`);
 }
 
@@ -33,7 +33,7 @@ export function previewPath(voice: VoiceName, dir: string = previewDir()): strin
  * Throws (with the API message) if the voice cannot be generated.
  */
 export async function ensurePreview(
-	voice: VoiceName,
+	voice: string,
 	apiKey: string,
 	opts: { dir?: string; fetchImpl?: FetchLike } = {},
 ): Promise<string> {

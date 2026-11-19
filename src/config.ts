@@ -129,8 +129,13 @@ export const FRAME_MS = 20;
 export interface SttEntry {
 	/** Realtime model ID sent to the provider. */
 	model: string;
-	/** Voice spoken by the realtime model. */
-	voice: VoiceName;
+	/** Voice spoken by the realtime model. Provider-specific (e.g. OpenAI voices, female/male). */
+	voice: string;
+	/**
+	 * Voices this provider accepts. When set, the picker and validation use it.
+	 * When absent, the OpenAI VOICES catalog is the default.
+	 */
+	voices?: string[];
 	/** Client-side VAD settings. */
 	vad: VadSettings;
 	/** Start muted (f9 unmutes). */
@@ -187,9 +192,18 @@ export function loadConfig(): SttConfig {
 		}
 		const providers: Record<string, SttEntry> = {};
 		for (const [name, e] of Object.entries(raw.providers)) {
+			const voices = Array.isArray(e.voices) && e.voices.length > 0
+				? e.voices.filter((v) => typeof v === "string" && v)
+				: undefined;
+			let voice = typeof e.voice === "string" && e.voice ? e.voice : DEFAULT_PROVIDER.voice;
+			// With a provider voice list, keep the voice only when it is in the list.
+			if (voices) {
+				if (!voices.includes(voice)) voice = voices[0]!;
+			}
 			providers[name] = {
 				model: e.model || DEFAULT_PROVIDER.model,
-				voice: VOICES.includes(e.voice as VoiceName) ? e.voice! : DEFAULT_PROVIDER.voice,
+				voice,
+				...(voices ? { voices } : {}),
 				vad: normalizeVad(e.vad),
 				muteOnStart: typeof e.muteOnStart === "boolean" ? e.muteOnStart : false,
 			};

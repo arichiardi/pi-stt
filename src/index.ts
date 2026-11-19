@@ -31,7 +31,7 @@ import {
 } from "./audio/vad.ts";
 import { ensurePreview, playPreviewFile } from "./previews.ts";
 import { openEchoAudio, EchoCleanup, type EchoAudio } from "./echo.ts";
-import { VOICES, VAD_ENGINES, VAD_MODES, loadConfig, saveConfig, activeProvider, activeProviderName, resolveProvider, listAvailableProviders, normalizeVadEngine, type SttConfig, type SttEntry, type VoiceName } from "./config.ts";
+import { VOICES, VAD_ENGINES, VAD_MODES, loadConfig, saveConfig, activeProvider, activeProviderName, resolveProvider, listAvailableProviders, normalizeVadEngine, type SttConfig, type SttEntry } from "./config.ts";
 import {
 	HANDOFF_COMPLETE_ACK,
 	STEER_ACK,
@@ -659,8 +659,9 @@ export default function (pi: ExtensionAPI, overrides: Partial<VoiceDeps> = {}) {
 	 * Voice picker with preview: moving the cursor plays the voice sample
 	 * (generated once and cached). Enter confirms, Esc cancels.
 	 */
-	function pickVoice(ctx: ExtensionCommandContext): Promise<VoiceName | undefined> {
-		return ctx.ui.custom<VoiceName | undefined>((_tui, theme, _kb, done) => {
+	function pickVoice(ctx: ExtensionCommandContext): Promise<string | undefined> {
+		const voiceList = settings.voices ?? [...VOICES];
+		return ctx.ui.custom<string | undefined>((_tui, theme, _kb, done) => {
 			let current: ChildProcess | undefined;
 			let seq = 0;
 			let warned = false;
@@ -670,12 +671,13 @@ export default function (pi: ExtensionAPI, overrides: Partial<VoiceDeps> = {}) {
 				current = undefined;
 			};
 
-			const preview = async (voice: VoiceName) => {
+			const preview = async (voice: string) => {
 				const mine = ++seq;
 				stopPlayback();
+				// Voice preview uses the OpenAI TTS endpoint; only valid for OpenAI-hosted providers.
 				const resolved = resolveProvider(providerName);
-				if (!resolved.apiKey) {
-					if (!warned) ctx.ui.notify("preview unavailable: no credential for current provider", "warning");
+				if (!resolved.apiKey || !resolved.baseUrl.includes("api.openai.com")) {
+					if (!warned) ctx.ui.notify("preview unavailable: voice preview is OpenAI-only", "warning");
 					warned = true;
 					return;
 				}
@@ -690,8 +692,8 @@ export default function (pi: ExtensionAPI, overrides: Partial<VoiceDeps> = {}) {
 			};
 
 			const list = new SelectList(
-				VOICES.map((v) => ({ value: v, label: v, description: v === settings.voice ? "current" : undefined })),
-				VOICES.length,
+				voiceList.map((v) => ({ value: v, label: v, description: v === settings.voice ? "current" : undefined })),
+				voiceList.length,
 				{
 					selectedPrefix: (t) => theme.fg("accent", t),
 					selectedText: (t) => theme.fg("accent", t),
@@ -700,12 +702,12 @@ export default function (pi: ExtensionAPI, overrides: Partial<VoiceDeps> = {}) {
 					noMatch: (t) => theme.fg("warning", t),
 				},
 			);
-			const initial = Math.max(0, VOICES.indexOf(settings.voice));
+			const initial = Math.max(0, voiceList.indexOf(settings.voice));
 			list.setSelectedIndex(initial);
-			list.onSelectionChange = (item) => void preview(item.value as VoiceName);
+			list.onSelectionChange = (item) => void preview(item.value as string);
 			list.onSelect = (item) => {
 				stopPlayback();
-				done(item.value as VoiceName);
+				done(item.value as string);
 			};
 			list.onCancel = () => {
 				stopPlayback();

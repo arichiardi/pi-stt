@@ -77,27 +77,35 @@ variables are for temporary use or CI.
 
 ## Configuration
 
-`<agentDir>/ar-llm/stt.json` (created when you choose a voice in `/stt-live settings`):
+`<agentDir>/ar-llm/stt.json`. Keyed by provider name. The active entry is pi's
+`settings.json.defaultProvider` (falls back to the first key). Each entry holds
+the model, voice, an optional provider `voices` list, and VAD.
 
 ```json
 {
-  "voice": "marin",
-  "model": "gpt-realtime-2.1-mini",
-  "muteOnStart": false,
-  "vad": {
-    "engine": "server",
-    "mode": "aggressive",
-    "onsetMs": 60,
-    "hangoverMs": 700,
-    "prefillMs": 450,
-    "commitResponse": true
+  "providers": {
+    "openai": {
+      "model": "gpt-realtime-2.1-mini",
+      "voice": "marin",
+      "muteOnStart": false,
+      "vad": { "engine": "server", "mode": "aggressive", "onsetMs": 60, "hangoverMs": 700, "prefillMs": 450, "commitResponse": true }
+    },
+    "pelagic-ai": {
+      "model": "liquid/LFM3-Omni-2B",
+      "voice": "female",
+      "voices": ["female", "male"],
+      "vad": { "engine": "fvad" }
+    }
   }
 }
 ```
 
-The current AEC path uses the default PulseAudio/PipeWire devices. Remove
-`inputDevice`/`outputDevice` if they are set. Explicit ALSA devices are rejected
-so playback cannot bypass the echo reference.
+`voices` is the list the provider accepts. `/stt-settings voice` shows it. When
+absent, the OpenAI voice catalog is the default. The voice preview (↑↓) is
+OpenAI-only; other providers show it as text.
+
+The current AEC path uses the default PulseAudio/PipeWire devices. Explicit ALSA
+devices are rejected so playback cannot bypass the echo reference.
 
 ## Audio
 
