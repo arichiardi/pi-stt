@@ -5,7 +5,7 @@
  * Falls back to Node's global `WebSocket` with an ephemeral client secret
  * (OpenAI only). The mode used is shown in `/stt-live status`.
  *
- * The `baseUrl` is provider-specific: derived from the profile's provider
+ * The `baseUrl` is provider-specific: derived from the active provider
  * (openai, llama.cpp, models.json custom). The WebSocket URL is built by
  * swapping http(s) to ws(s) and appending /realtime?model=...
  */
