@@ -33,12 +33,12 @@ export interface EchoAudio {
  close(): Promise<void>;
 }
 export async function openEchoAudio(run: Run = pactl): Promise<EchoAudio> {
- if (process.platform !== 'linux') throw new Error('AEC requer PulseAudio/PipeWire no Linux');
+ if (process.platform !== 'linux') throw new Error('AEC requires PulseAudio/PipeWire on Linux');
  const name = `pi_voice_${randomUUID().replaceAll('-', '')}`;
  const source = `${name}_source`, sink = `${name}_sink`;
  const id = (await run(['load-module', 'module-echo-cancel', 'aec_method=webrtc',
   `source_name=${source}`, `sink_name=${sink}`, 'rate=48000', 'channels=1'])).trim();
- if (!/^\d+$/.test(id)) throw new Error('AEC retornou identificador de módulo inválido');
+ if (!/^\d+$/.test(id)) throw new Error('AEC returned an invalid module identifier');
  let closed = false;
  const format = ['--raw', '--format=s16le', '--rate=24000', '--channels=1'];
  return {

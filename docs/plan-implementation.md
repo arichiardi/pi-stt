@@ -140,7 +140,7 @@ export interface VoiceSettings { ...; vad: VadSettings; }
 2. `createRequire(argv[1])` → same
 3. `createRequire(execPath)` → same
 
-Wrap each step in try/catch; the last failure triggers the RMS fallback plus a warning. **Test on macOS (Node) first.** The WASM does not publish `.wasm` in the tarball; it is base64 in the bundle, so there is no file path resolution.
+Wrap each step in try/catch; the last failure triggers the RMS fallback plus a warning. **Test on Node first** (any platform; the loader has no audio dependency). The WASM does not publish `.wasm` in the tarball; it is base64 in the bundle, so there is no file path resolution.
 
 ---
 
@@ -205,7 +205,7 @@ Wrap each step in try/catch; the last failure triggers the RMS fallback plus a w
 
 | Risk | Mitigation |
 |---|---|
-| WASM does not load under jiti | `createRequire` fallback + RMS + warning; test macOS Node first |
+| WASM does not load under jiti | `createRequire` fallback + RMS + warning; test Node first |
 | Double turn boundaries (server + client) | `turn_detection: null` when a client engine is active |
 | Audio lost at the start | Pre-roll (450 ms ring) drains at onset |
 | Early close (pauses) | Hangover + RMS dual threshold |
@@ -217,7 +217,11 @@ Wrap each step in try/catch; the last failure triggers the RMS fallback plus a w
 
 ## On-device validation
 
-Rules from `README.md` / `docs/plan-implementacao.md`: production validation needs macOS (Node) + Linux (audio). The main engine uses libfvad **WASM**, which runs in Node on both platforms; **capture with AEC (`arecord`/PulseAudio) is Linux**.
+Rules from `README.md` / `docs/plan-implementation.md`: production validation
+needs a Node platform for the code path (macOS is fine) + Linux for capture. The
+code-side phases are cross-platform: Node, no microphone, no real-time server.
+The WASM scorer loads in Node on macOS and Linux. Capture with AEC
+(`parec`/`pacat` + `module-echo-cancel`) is Linux, so only F7 needs Linux.
 
-- **F2-F3 (code side, macOS Node):** ✔ Verified that `loadVad()` + `createScorer("webrtc_fvad")` return `WebRtcScorer` (no fallback), that `processBuffer` runs (silence → `SILENCE`, transitions to `VOICE`, zero `ERROR`), and that `dispose()` releases resources. Acoustic `VOICE` triggering **cannot** be validated with stationary synthetic signals (WebRTC VAD suppresses stationary tones and noise; it needs real speech transients).
+- **F2-F3 (code side, any Node):** ✔ Verified that `loadVad()` + `createScorer("webrtc_fvad")` return `WebRtcScorer` (no fallback), that `processBuffer` runs (silence → `SILENCE`, transitions to `VOICE`, zero `ERROR`), and that `dispose()` releases resources. Acoustic `VOICE` triggering **cannot** be validated with stationary synthetic signals (WebRTC VAD suppresses stationary tones and noise; it needs real speech transients).
 - **F7 (Linux + llama.cpp):** `VOICE` triggering with real speech, commit point, barge-in, and acoustics. Pending.

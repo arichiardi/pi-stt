@@ -158,14 +158,14 @@ test("start envia o backend prompt, com realtime_start em instructions e sem ite
 	await startVoice(env);
 	const update = env.socket.sent.find((e) => e.type === "session.update");
 	assert.match(update.session.instructions, /## Identity, tone, and role/);
-	assert.match(update.session.instructions, /Diretório de trabalho: \/work\/projeto/);
+	assert.match(update.session.instructions, /Working directory: \/work\/projeto/);
 	assert.match(update.session.instructions, /\[USER\] corrige o teste do parser/);
 	assert.match(update.session.instructions, /Realtime conversation started\./);
 	// the API rejects an item with role developer in a realtime session
 	assert.equal(env.socket.sent.find((e) => e.item?.role === "developer"), undefined);
 });
 
-test("background_agent ocioso inicia o turno com envelope de delegação, sem output ainda", async () => {
+test("idle background_agent starts the turn with a delegation envelope, no output yet", async () => {
 	const env = setup();
 	await startVoice(env);
 	env.server(backgroundAgent("call_1", "lista os arquivos do pacote"));
@@ -189,12 +189,12 @@ test("fim do run devolve [BACKEND], function_call_output e response.create nessa
 	assert.deepEqual(create, { type: "response.create" });
 });
 
-test("background_agent com agente ocupado vira steer e recebe o ack da própria chamada", async () => {
+test("background_agent with busy agent becomes steer and receives the ack for that call", async () => {
 	const env = setup();
 	await startVoice(env);
 	env.server(backgroundAgent("call_1", "faz X"));
 	env.ctx.idle = false;
-	env.server(backgroundAgent("call_2", "e também Y"));
+	env.server(backgroundAgent("call_2", "and also Y"));
 	assert.equal(env.pi.sent[1].deliverAs, "steer");
 	const output = messagesOf(env.socket).find((e) => e.type === "conversation.item.create" && e.item.call_id === "call_2");
 	assert.equal(output.item.output, STEER_ACK);
@@ -204,7 +204,7 @@ test("background_agent com agente ocupado vira steer e recebe o ack da própria 
 	assert.deepEqual(completions.map((e) => e.item.call_id), ["call_1"]);
 });
 
-test("remain_silent devolve saída vazia e não pede resposta", async () => {
+test("remain_silent returns empty output and does not request a response", async () => {
 	const env = setup();
 	await startVoice(env);
 	env.server({ type: "response.function_call_arguments.done", name: "remain_silent", call_id: "call_s", arguments: "{}" });
@@ -213,16 +213,16 @@ test("remain_silent devolve saída vazia e não pede resposta", async () => {
 	assert.equal(messagesOf(env.socket).some((e) => e.type === "response.create"), false);
 });
 
-test("fala do usuário vai ao histórico do pi sem disparar turno", async () => {
+test("user speech goes to pi history without triggering a turn", async () => {
 	const env = setup();
 	await startVoice(env);
-	env.server(transcript("explica o módulo de áudio"));
+	env.server(transcript("explain the audio module"));
 	assert.equal(env.pi.sent.length, 0, "nenhum turno iniciado pela fala");
 	assert.equal(env.pi.custom.length, 1);
-	assert.equal(env.pi.custom[0].message.content, "[USER] explica o módulo de áudio");
+	assert.equal(env.pi.custom[0].message.content, "[USER] explain the audio module");
 	assert.equal(env.pi.custom[0].message.display, false);
 	assert.equal(env.pi.custom[0].options, undefined, "sem triggerTurn");
-	assert.deepEqual(env.pi.entries.map((e) => e.data.text), ["explica o módulo de áudio"]);
+	assert.deepEqual(env.pi.entries.map((e) => e.data.text), ["explain the audio module"]);
 });
 
 

@@ -8,11 +8,11 @@ import { buildStartupContext, recentTurns } from "../src/startup-context.ts";
 
 const msg = (role: string, content: unknown) => ({ type: "message", message: { role, content } });
 
-test("ignora entradas que não são texto de usuário ou agente", () => {
+test("ignores entries that are not user or agent text", () => {
 	const turns = recentTurns([
 		{ type: "model_change" },
 		msg("user", "oi"),
-		msg("toolResult", "saída"),
+		msg("toolResult", "output"),
 		msg("assistant", [{ type: "toolCall", name: "bash" }, { type: "text", text: "pronto" }]),
 	]);
 	assert.deepEqual(turns, [
@@ -21,10 +21,10 @@ test("ignora entradas que não são texto de usuário ou agente", () => {
 	]);
 });
 
-test("respeita o orçamento e mantém a ordem cronológica dos turnos mais recentes", () => {
+test("respects the budget and keeps chronological order of recent turns", () => {
 	const branch = Array.from({ length: 50 }, (_, i) => msg(i % 2 ? "assistant" : "user", `turno ${i} ` + "x".repeat(2000)));
 	const context = buildStartupContext(branch, "/w", 1_000);
-	assert.ok(context.length / 4 <= 1_050, "dentro do orçamento (com folga do cabeçalho)");
+	assert.ok(context.length / 4 <= 1_050, "within budget (with header slack)");
 	assert.ok(context.includes("turno 49"), "o mais recente entra");
 	assert.ok(!context.includes("turno 0 "), "o mais antigo sai");
 	const lines = context.split("\n").filter((l) => /turno \d+/.test(l));
@@ -32,8 +32,8 @@ test("respeita o orçamento e mantém a ordem cronológica dos turnos mais recen
 	assert.deepEqual(numbers, [...numbers].sort((a, b) => a - b));
 });
 
-test("sem turnos, ainda informa o diretório de trabalho", () => {
+test("with no turns, still reports the working directory", () => {
 	const context = buildStartupContext([], "/w");
-	assert.match(context, /Diretório de trabalho: \/w/);
-	assert.ok(!context.includes("Turnos recentes"));
+	assert.match(context, /Working directory: \/w/);
+	assert.ok(!context.includes("Recent turns"));
 });

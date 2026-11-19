@@ -12,11 +12,12 @@ Needs Node 24 (or 22.6+ with `--experimental-strip-types`).
 
 ```bash
 npm install
-npm run test:unit        # blocking in CI
-npm test                 # includes integration (pending, see below)
+npm test                 # blocking in CI (same command CI runs)
 ```
 
-The integration tests do not run against the current code: they expect dependency injection in `index.ts` that does not exist. Contributions that add this seam are welcome.
+CI is the single source of truth for the test command. It runs `npm test`
+(`node --test "test/**/*.test.ts"`), and that command passes against the current
+code. There is no separate unit-only script.
 
 ## Commit style
 
@@ -25,7 +26,7 @@ The integration tests do not run against the current code: they expect dependenc
 ## Pull requests
 
 - One topic per PR.
-- The unit test CI must pass.
+- The test suite (`npm test`) must pass.
 - Audio changes and realtime protocol changes must explain how you verified them. Simulated tests do not prove audible audio.
 - Never commit `voice.json`, `auth.json`, environment files, or API keys.
 

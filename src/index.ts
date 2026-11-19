@@ -10,10 +10,11 @@
  *   `function_call_output` and a spoken reply.
  *
  * Commands: /stt-live [start|stop|mute|unmute|settings|status]
+ *           /stt-provider - switch the active profile.
  * Shortcut: f9 - mute/unmute the microphone.
  *
- * Needs OPENAI_API_KEY (or PI_VOICE_API_KEY, or openai in <agentDir>/auth.json):
- * the transport is `/v1/realtime`, with an API key instead of ChatGPT auth.
+ * Supports multiple providers: openai, llama.cpp, and any models.json entry
+ * that exposes /v1/realtime.
  */
 
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
@@ -30,14 +31,7 @@ import {
 } from "./audio/vad.ts";
 import { ensurePreview, playPreviewFile } from "./previews.ts";
 import { openEchoAudio, EchoCleanup, type EchoAudio } from "./echo.ts";
-import {
-	VOICES,
-	loadSettings,
-	resolveApiKey,
-	saveSettings,
-	type VoiceName,
-	type VoiceSettings,
-} from "./config.ts";
+import { VOICES, VAD_ENGINES, VAD_MODES, loadConfig, saveConfig, activeProvider, activeProviderName, resolveProvider, listAvailableProviders, type SttConfig, type SttEntry, type VoiceName } from "./config.ts";
 import {
 	HANDOFF_COMPLETE_ACK,
 	STEER_ACK,
@@ -76,7 +70,14 @@ const DEFAULT_DEPS: VoiceDeps = {
 
 export default function (pi: ExtensionAPI, overrides: Partial<VoiceDeps> = {}) {
 	const deps: VoiceDeps = { ...DEFAULT_DEPS, ...overrides };
-	let settings: VoiceSettings = loadSettings();
+	let config: SttConfig = loadConfig();
+	/** Provider name for the running session (key in the providers map). */
+	let providerName = activeProviderName(config);
+	/** Active entry (derived from config + providerName). */
+	let settings: SttEntry = config.providers[providerName];
+	/** Resolved provider info for the active session. */
+	let resolvedBaseUrl = "";
+	let resolvedSource = "";
 	let session: RealtimeSession | undefined;
 	let recorder: Recorder | undefined;
 	let player: Player | undefined;
@@ -199,7 +200,7 @@ export default function (pi: ExtensionAPI, overrides: Partial<VoiceDeps> = {}) {
 		const oldEcho = echoAudio;
 		echoAudio = undefined;
 		if (oldEcho) echoCleanup.add(oldEcho);
-		void echoCleanup.flush().catch(() => ctx.ui.notify("falha ao liberar módulo AEC; limpeza será tentada novamente", "warning"));
+		void echoCleanup.flush().catch(() => ctx.ui.notify("failed to release AEC module; cleanup will be retried", "warning"));
 		speaking = false;
 		activeCall = undefined;
 		if (speakingTimer) clearTimeout(speakingTimer);
@@ -213,7 +214,7 @@ export default function (pi: ExtensionAPI, overrides: Partial<VoiceDeps> = {}) {
 		view = { phase: "listening", speaking: false };
 		ctx.ui.setWidget(WIDGET_KEY, undefined);
 		ctx.ui.setStatus(STATUS_KEY, undefined);
-		if (reason) ctx.ui.notify(`voz encerrada: ${reason}`, "warning");
+		if (reason) ctx.ui.notify(`voice session ended: ${reason}`, "warning");
 	}
 
 	function toggleMute(ctx: ExtensionContext) {
@@ -230,24 +231,38 @@ export default function (pi: ExtensionAPI, overrides: Partial<VoiceDeps> = {}) {
 		view = { ...view, phase: muted ? "muted" : speaking ? "speaking" : "listening", speaking };
 		refresh();
 		setStatus(ctx);
-		ctx.ui.notify(muted ? "microfone mutado (f9)" : "microfone ativo (f9)", "info");
+		ctx.ui.notify(muted ? "microphone muted (f9)" : "microphone active (f9)", "info");
 	}
 
 	async function start(ctx: ExtensionContext) {
 		if (active()) {
-			ctx.ui.notify("sessão de voz já está ativa — /stt-live stop para encerrar", "info");
+			ctx.ui.notify("voice session already active — /stt-live stop to end it", "info");
 			return;
 		}
-		const apiKey = resolveApiKey();
-		if (!apiKey) {
+
+		// Reload config to pick up any provider changes.
+		config = loadConfig();
+		providerName = activeProviderName(config);
+		settings = config.providers[providerName];
+
+		const resolved = resolveProvider(providerName);
+		if (!resolved.apiKey) {
 			ctx.ui.notify(
-				"sem credencial: rode /login openai (ou defina OPENAI_API_KEY)",
+				`no credential for provider "${providerName}" (source: ${resolved.source})`,
+				"error",
+			);
+			return;
+		}
+		if (!resolved.baseUrl) {
+			ctx.ui.notify(
+				`provider "${providerName}" has no baseUrl: add it in models.json`,
 				"error",
 			);
 			return;
 		}
 
-		settings = loadSettings();
+		resolvedBaseUrl = resolved.baseUrl;
+		resolvedSource = resolved.source;
 		muted = settings.muteOnStart;
 		view = { phase: "starting", speaking: false };
 		micSum = 0;
@@ -276,7 +291,8 @@ export default function (pi: ExtensionAPI, overrides: Partial<VoiceDeps> = {}) {
 			buildStartupContext(ctx.sessionManager.getBranch(), ctx.cwd),
 		);
 		const current = new RealtimeSession({
-			apiKey,
+			apiKey: resolved.apiKey,
+			baseUrl: resolved.baseUrl,
 			settings,
 			instructions,
 			openSocket: deps.openSocket,
@@ -292,7 +308,7 @@ export default function (pi: ExtensionAPI, overrides: Partial<VoiceDeps> = {}) {
 		} catch (error) {
 			if (session === current) {
 				teardown(undefined, ctx);
-				ctx.ui.notify(`falha ao abrir voz: ${(error as Error).message}`, "error");
+				ctx.ui.notify(`failed to open voice: ${(error as Error).message}`, "error");
 			}
 			return;
 		}
@@ -300,13 +316,10 @@ export default function (pi: ExtensionAPI, overrides: Partial<VoiceDeps> = {}) {
 		if (session !== current) return;
 
 		try {
-			if (settings.inputDevice || settings.outputDevice) {
-				throw new Error("AEC usa os dispositivos padrão PulseAudio/PipeWire; remova inputDevice/outputDevice de voice.json");
-			}
 			const routes = await deps.openEcho();
 			if (session !== current) {
 				echoCleanup.add(routes);
-				await echoCleanup.flush().catch(() => ctx.ui.notify("falha ao liberar AEC de sessão cancelada", "warning"));
+				await echoCleanup.flush().catch(() => ctx.ui.notify("failed to release AEC from cancelled session", "warning"));
 				return;
 			}
 			echoAudio = routes;
@@ -346,15 +359,15 @@ export default function (pi: ExtensionAPI, overrides: Partial<VoiceDeps> = {}) {
 					micLastAt = Date.now();
 				},
 				onError: (error) => {
-					ctx.ui.notify(`microfone: ${error.message}`, "error");
-					if (session === current) teardown("falha no microfone", ctx);
+					ctx.ui.notify(`microphone: ${error.message}`, "error");
+					if (session === current) teardown("microphone failure", ctx);
 				},
 			});
 			recorder.setMuted(muted);
 			recorder.start(routes.capture);
 		} catch (error) {
 			if (session !== current) return;
-			teardown(`falha ao iniciar áudio: ${(error as Error).message}`, ctx);
+			teardown(`failed to start audio: ${(error as Error).message}`, ctx);
 			return;
 		}
 
@@ -362,8 +375,8 @@ export default function (pi: ExtensionAPI, overrides: Partial<VoiceDeps> = {}) {
 		setStatus(ctx);
 		ctx.ui.notify(
 			muted
-				? "Voz conectada (mutado). f9 desmuta, /stt-live stop encerra."
-				: "Conversa por voz iniciada. f9 muda, /stt-live stop encerra.",
+				? "Voice connected (muted). f9 unmute, /stt-live stop to end."
+				: "Voice session started. f9 mute, /stt-live stop to end.",
 			"info",
 		);
 	}
@@ -452,8 +465,8 @@ export default function (pi: ExtensionAPI, overrides: Partial<VoiceDeps> = {}) {
 				break;
 
 			case "error": {
-				const hint = event.dialectHint ? " — payload rejeitado pela API; verifique o formato da sessão" : "";
-				ctx.ui.notify(`voz: ${event.message}${hint}`, "error");
+				const hint = event.dialectHint ? " — payload rejected by the API; check session format" : "";
+				ctx.ui.notify(`voice: ${event.message}${hint}`, "error");
 				break;
 			}
 		}
@@ -483,7 +496,7 @@ export default function (pi: ExtensionAPI, overrides: Partial<VoiceDeps> = {}) {
 			else pi.sendUserMessage(turn, { deliverAs: "steer" });
 		} catch (error) {
 			activeCall = undefined;
-			session?.functionCallOutput(callId, `não consegui iniciar a tarefa: ${(error as Error).message}`);
+			session?.functionCallOutput(callId, `I could not start the task: ${(error as Error).message}`);
 			session?.createResponse();
 		}
 	}
@@ -493,7 +506,7 @@ export default function (pi: ExtensionAPI, overrides: Partial<VoiceDeps> = {}) {
 	pi.registerCommand("stt-live", {
 		description: "Real-time voice conversation with the agent (start | stop | mute | settings)",
 		getArgumentCompletions: (prefix) =>
-			["start", "stop", "mute", "unmute", "settings", "status"]
+			["start", "stop", "mute", "unmute", "status"]
 				.filter((option) => option.startsWith(prefix))
 				.map((option) => ({ value: option, label: option })),
 		handler: async (args, ctx) => {
@@ -505,56 +518,142 @@ export default function (pi: ExtensionAPI, overrides: Partial<VoiceDeps> = {}) {
 					return;
 				case "stop":
 					if (!active()) {
-						await echoCleanup.flush().catch(() => ctx.ui.notify("falha ao liberar módulo AEC", "warning"));
-						ctx.ui.notify("nenhuma sessão de voz ativa", "info");
+						await echoCleanup.flush().catch(() => ctx.ui.notify("failed to release AEC module", "warning"));
+						ctx.ui.notify("no active voice session", "info");
 						return;
 					}
 					teardown(undefined, ctx);
-					ctx.ui.notify("voz encerrada", "info");
+					ctx.ui.notify("voice session stopped", "info");
 					return;
 				case "mute":
 				case "unmute":
 					if (!active()) {
-						ctx.ui.notify("a voz não está ativa", "info");
+						ctx.ui.notify("voice is not active", "info");
 						return;
 					}
 					if ((action === "mute") !== muted) toggleMute(ctx);
 					return;
 				case "status": {
-					const key = resolveApiKey();
+				const resolved = resolveProvider(providerName);
+					const current = activeProvider(config);
 					ctx.ui.notify(
 						[
-							`estado: ${active() ? view.phase : "inativa"}`,
-							`voz: ${settings.voice}`,
-							`modelo: ${settings.model}`,
-							`credencial: ${key ? "ok" : "ausente"}`,
-							`transporte: ${session?.transport?.impl ?? "-"} · auth: ${session?.transport?.authMode ?? "-"} · protocolo: realtime V2`,
+							`status: ${active() ? view.phase : "inactive"}`,
+							`provider: ${providerName}`,
+							`voice: ${current.voice}`,
+							`model: ${current.model}`,
+							`credential: ${resolved.apiKey ? `ok (${resolved.source})` : "missing"}`,
+							`base url: ${resolved.baseUrl || "(none)"}`,
+							`transport: ${session?.transport?.impl ?? "-"} · auth: ${session?.transport?.authMode ?? "-"} · protocol: realtime V2`,
 							`vad: ${vadLabel}${gate ? ` · gate: ${gate.phase}` : ""}`,
-							`saída: ${player ? "aberta" : "fechada"} · entrada: ${recorder ? "aberta" : "fechada"}`,
+							`output: ${player ? "open" : "closed"} · input: ${recorder ? "open" : "closed"}`,
 						].join("\n"),
 						"info",
 					);
 					return;
 				}
-				case "settings":
-					await openSettings(ctx);
-					return;
 				default:
-					ctx.ui.notify(`/stt-live ${action}: use start, stop, mute, unmute, settings ou status`, "warning");
+					ctx.ui.notify(`/stt-live ${action}: use start, stop, mute, unmute, or status (see /stt-settings)`, "warning");
 			}
 		},
 	});
 
-	async function openSettings(ctx: ExtensionCommandContext) {
-		const choice = await pickVoice(ctx);
-		if (!choice) return;
-		settings = { ...settings, voice: choice as VoiceName };
-		saveSettings(settings);
-		ctx.ui.notify(
-			`voz definida para ${choice} — vale para a próxima sessão (/stt-live stop e /stt-live)`,
-			"info",
-		);
+	/** Merge a patch into the active provider entry and persist. */
+	function updateProvider(patch: Partial<SttEntry>): void {
+		const merged: SttEntry = { ...settings, ...patch };
+		settings = merged;
+		config = { ...config, providers: { ...config.providers, [providerName]: merged } };
+		saveConfig(config);
 	}
+
+	/** Active settings as lines (used by /stt-settings with no args). */
+	function settingsLines(): string[] {
+		const v = settings.vad;
+		return [
+			`provider: ${providerName}`,
+			`voice: ${settings.voice}`,
+			`model: ${settings.model}`,
+			`vad: ${v.engine} · mode: ${v.mode} · onset ${v.onsetMs}ms · hangover ${v.hangoverMs}ms · prefill ${v.prefillMs}ms`,
+		];
+	}
+
+	// ------------------------------------------------------------------ settings
+
+	pi.registerCommand("stt-settings", {
+		description: "Voice settings: show | voice | model <id> | vad [engine|mode <m>] | provider",
+		getArgumentCompletions: (prefix) =>
+			["voice", "model", "vad", "provider"].filter((o) => o.startsWith(prefix)).map((o) => ({ value: o, label: o })),
+		handler: async (args, ctx) => {
+			const parts = (args || "").trim().split(/\s+/);
+			const sub = (parts[0] || "").toLowerCase();
+			const rest = parts.slice(1).join(" ").trim();
+
+			switch (sub) {
+				case "": {
+					ctx.ui.notify(
+						[...settingsLines(), "", "use: voice | model <id> | vad <engine> | vad mode <mode> | provider"].join("\n"),
+						"info",
+					);
+					return;
+				}
+				case "voice": {
+					const choice = await pickVoice(ctx);
+					if (!choice) return;
+					updateProvider({ voice: choice });
+					ctx.ui.notify(`voice set to ${choice} - applies to the next session`, "info");
+					return;
+				}
+				case "model": {
+					if (!rest) {
+						ctx.ui.notify(`current model: ${settings.model}\nuse: /stt-settings model <id>`, "info");
+						return;
+					}
+					updateProvider({ model: rest });
+					ctx.ui.notify(`model set to ${rest} for provider "${providerName}" - applies to the next session`, "info");
+					return;
+				}
+				case "vad": {
+					const arg = (parts[1] || "").toLowerCase();
+					if (!arg) {
+						ctx.ui.notify(
+							`vad: ${settings.vad.engine} · mode: ${settings.vad.mode}\nuse: /stt-settings vad <engine> | vad mode <mode>`,
+							"info",
+						);
+						return;
+					}
+					if (arg === "mode") {
+						const mode = (parts[2] || "").toLowerCase() as VadMode;
+						if (!VAD_MODES.includes(mode)) {
+							ctx.ui.notify(`vad mode must be: ${VAD_MODES.join(", ")}`, "warning");
+							return;
+						}
+						updateProvider({ vad: { ...settings.vad, mode } });
+						ctx.ui.notify(`vad mode set to ${mode} - applies to the next session`, "info");
+						return;
+					}
+					const engine = arg as VadEngine;
+					if (!VAD_ENGINES.includes(engine)) {
+						ctx.ui.notify(`vad engine must be: ${VAD_ENGINES.join(", ")}`, "warning");
+						return;
+					}
+					updateProvider({ vad: { ...settings.vad, engine } });
+					ctx.ui.notify(
+						`vad engine set to ${engine} - applies to the next session${
+							active() ? " (stop the session to apply)" : ""
+						}`,
+						"info",
+					);
+					return;
+				}
+				case "provider": {
+					await pickProvider(ctx);
+					return;
+				}
+				default:
+					ctx.ui.notify(`/stt-settings ${sub}: use voice, model, vad, provider, or run /stt-settings to show`, "warning");
+			}
+		},
+	});
 
 	/**
 	 * Voice picker with preview: moving the cursor plays the voice sample
@@ -574,14 +673,14 @@ export default function (pi: ExtensionAPI, overrides: Partial<VoiceDeps> = {}) {
 			const preview = async (voice: VoiceName) => {
 				const mine = ++seq;
 				stopPlayback();
-				const key = resolveApiKey();
-				if (!key) {
-					if (!warned) ctx.ui.notify("prévia indisponível: credencial OpenAI ausente", "warning");
+				const resolved = resolveProvider(providerName);
+				if (!resolved.apiKey) {
+					if (!warned) ctx.ui.notify("preview unavailable: no credential for current provider", "warning");
 					warned = true;
 					return;
 				}
 				try {
-					const path = await ensurePreview(voice, key);
+					const path = await ensurePreview(voice, resolved.apiKey);
 					if (mine !== seq) return; // cursor already moved
 					current = playPreviewFile(path);
 				} catch (error) {
@@ -591,7 +690,7 @@ export default function (pi: ExtensionAPI, overrides: Partial<VoiceDeps> = {}) {
 			};
 
 			const list = new SelectList(
-				VOICES.map((v) => ({ value: v, label: v, description: v === settings.voice ? "atual" : undefined })),
+				VOICES.map((v) => ({ value: v, label: v, description: v === settings.voice ? "current" : undefined })),
 				VOICES.length,
 				{
 					selectedPrefix: (t) => theme.fg("accent", t),
@@ -615,7 +714,7 @@ export default function (pi: ExtensionAPI, overrides: Partial<VoiceDeps> = {}) {
 
 			return {
 				render: (width: number) => [
-					theme.fg("accent", `Voz da conversa (atual: ${settings.voice}) — ↑↓ ouvir prévia · enter escolhe · esc cancela`),
+					theme.fg("accent", `Conversation voice (current: ${settings.voice}) — ↑↓ preview · enter select · esc cancel`),
 					...list.render(width),
 				],
 				handleInput: (data: string) => list.handleInput(data),
@@ -629,15 +728,74 @@ export default function (pi: ExtensionAPI, overrides: Partial<VoiceDeps> = {}) {
 	}
 
 	pi.registerShortcut("f9", {
-		description: "Voz: mutar/desmutar microfone",
+		description: "Voice: mute/unmute microphone",
 		handler: async (ctx) => {
 			if (!active()) {
-				ctx.ui.notify("voz inativa — use /stt-live para iniciar", "info");
+				ctx.ui.notify("voice inactive — use /stt-live to start", "info");
 				return;
 			}
 			toggleMute(ctx);
 		},
 	});
+
+	/** Provider picker: choose the active provider (key in stt.json providers). */
+	async function pickProvider(ctx: ExtensionCommandContext): Promise<void> {
+		const names = Object.keys(config.providers);
+		if (names.length === 0) {
+			ctx.ui.notify("no providers configured in stt.json", "warning");
+			return;
+		}
+		if (names.length === 1) {
+			const p = config.providers[names[0]!];
+			ctx.ui.notify(`only one provider: "${names[0]}" (model: ${p.model})`, "info");
+			return;
+		}
+		const selected = await ctx.ui.custom<string | undefined>((_tui, theme, _kb, done) => {
+			const list = new SelectList(
+				names.map((name) => {
+					const p = config.providers[name]!;
+					const desc = `model: ${p.model} · vad: ${p.vad.engine}`;
+					return { value: name, label: name, description: name === providerName ? "active (current)" : desc };
+				}),
+				Math.min(names.length, 8),
+				{
+					selectedPrefix: (t: string) => theme.fg("accent", t),
+					selectedText: (t: string) => theme.fg("accent", t),
+					description: (t: string) => theme.fg("dim", t),
+					scrollInfo: (t: string) => theme.fg("dim", t),
+					noMatch: (t: string) => theme.fg("warning", t),
+				},
+			);
+			const idx = Math.max(0, names.indexOf(providerName));
+			list.setSelectedIndex(idx);
+			list.onSelect = (item) => done(item.value as string);
+			list.onCancel = () => done(undefined);
+			return {
+				render: (width: number) => [
+					theme.fg("accent", "Select provider — enter switch · esc cancel"),
+					...list.render(width),
+				],
+				handleInput: (data: string) => list.handleInput(data),
+					invalidate: () => list.invalidate?.(),
+					dispose: () => {},
+			};
+		});
+		if (!selected) return;
+		if (active()) {
+			ctx.ui.notify(
+				`provider set to "${selected}" — stop the current session first (/stt-live stop)`,
+				"warning",
+			);
+			return;
+		}
+		providerName = selected;
+		settings = config.providers[selected]!;
+		const resolved = resolveProvider(providerName);
+		ctx.ui.notify(
+			`active provider: "${providerName}" (model: ${settings.model}) — base: ${resolved.baseUrl || "(none)"}`,
+			"info",
+		);
+	}
 
 	// ------------------------------------------------------------------ events
 
@@ -651,7 +809,7 @@ export default function (pi: ExtensionAPI, overrides: Partial<VoiceDeps> = {}) {
 	pi.registerEntryRenderer(TRANSCRIPT_ENTRY, (entry, _options, theme) => {
 		const data = (entry as { data?: { role?: string; text?: string } }).data;
 		if (!data?.text) return undefined;
-		const prefix = data.role === "user" ? "🎙️ você" : "🔊 agente";
+		const prefix = data.role === "user" ? "🎙️ you" : "🔊 agent";
 		return new Text(`${theme.fg("dim", prefix)} ${data.text}`, 0, 0);
 	});
 
@@ -677,7 +835,7 @@ export default function (pi: ExtensionAPI, overrides: Partial<VoiceDeps> = {}) {
 	// A decision request (permission prompt, error, confirmation) is announced by voice.
 	pi.on("ui_prompt_start", async (event, ctx) => {
 		if (!session) return;
-		session.backendItem(`o agente precisa de uma decisão no terminal: ${event.title ?? event.kind}`);
+		session.backendItem(`the agent needs a decision in the terminal: ${event.title ?? event.kind}`);
 		session.createResponse();
 		refresh();
 		setStatus(ctx);
@@ -688,6 +846,6 @@ export default function (pi: ExtensionAPI, overrides: Partial<VoiceDeps> = {}) {
 			session.developerText(END_INSTRUCTIONS);
 			teardown(undefined, ctx);
 		}
-		await echoCleanup.flush().catch(() => ctx.ui.notify("falha ao liberar módulo AEC no shutdown", "warning"));
+		await echoCleanup.flush().catch(() => ctx.ui.notify("failed to release AEC module on shutdown", "warning"));
 	});
 }

@@ -10,10 +10,12 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { createReadStream, existsSync, mkdirSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { playBackend } from "./audio.ts";
-import { API_BASE, agentDir, type VoiceName } from "./config.ts";
+import { agentDir, type VoiceName } from "./config.ts";
+
+const TTS_API_BASE = "https://api.openai.com/v1";
 
 export const PREVIEW_MODEL = "gpt-4o-mini-tts";
-export const PREVIEW_TEXT = "Oi, eu sou a sua voz da conversa. Assim eu vou soar.";
+export const PREVIEW_TEXT = "Hi, I am your voice assistant. This is how I sound.";
 
 export type FetchLike = (url: string, init: RequestInit) => Promise<Response>;
 
@@ -40,7 +42,7 @@ export async function ensurePreview(
 	if (existsSync(path)) return path;
 
 	const fetchImpl = opts.fetchImpl ?? (fetch as FetchLike);
-	const res = await fetchImpl(`${API_BASE}/audio/speech`, {
+	const res = await fetchImpl(`${TTS_API_BASE}/audio/speech`, {
 		method: "POST",
 		headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
 		body: JSON.stringify({
@@ -52,10 +54,10 @@ export async function ensurePreview(
 	});
 	if (!res.ok) {
 		const detail = await res.text().catch(() => "");
-		throw new Error(`prévia da voz ${voice} indisponível (HTTP ${res.status}) ${detail.slice(0, 200)}`);
+		throw new Error(`voice preview ${voice} unavailable (HTTP ${res.status}) ${detail.slice(0, 200)}`);
 	}
 	const pcm = Buffer.from(await res.arrayBuffer());
-	if (pcm.length === 0) throw new Error(`prévia da voz ${voice} veio vazia`);
+	if (pcm.length === 0) throw new Error(`voice preview ${voice} returned empty audio`);
 
 	mkdirSync(dir, { recursive: true });
 	const tmp = `${path}.tmp`;

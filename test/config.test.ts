@@ -5,9 +5,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { join } from "node:path";
-import { agentDir, settingsPath, normalizeVad, DEFAULT_VAD, DEFAULT_SETTINGS } from "../src/config.ts";
+import { agentDir, settingsPath, normalizeVad, DEFAULT_VAD, DEFAULT_PROVIDER } from "../src/config.ts";
 
-test("agentDir segue PI_CODING_AGENT_DIR", () => {
+test("agentDir follows PI_CODING_AGENT_DIR", () => {
 	const prev = process.env.PI_CODING_AGENT_DIR;
 	process.env.PI_CODING_AGENT_DIR = "/tmp/pi-agent-test";
 	try {
@@ -19,12 +19,12 @@ test("agentDir segue PI_CODING_AGENT_DIR", () => {
 	}
 });
 
-test("engine default e off (OpenAI mantem server VAD)", () => {
+test("default engine is off (OpenAI keeps server VAD)", () => {
 	assert.equal(DEFAULT_VAD.engine, "off");
-	assert.equal(DEFAULT_SETTINGS.vad.engine, "off");
+	assert.equal(DEFAULT_PROVIDER.vad.engine, "off");
 });
 
-test("normalizeVad mescla por cima dos defaults", () => {
+test("normalizeVad merges on top of defaults", () => {
 	const v = normalizeVad({ engine: "webrtc_fvad", onsetMs: 40 });
 	assert.equal(v.engine, "webrtc_fvad");
 	assert.equal(v.onsetMs, 40);
@@ -33,14 +33,14 @@ test("normalizeVad mescla por cima dos defaults", () => {
 	assert.equal(v.commitResponse, DEFAULT_VAD.commitResponse);
 });
 
-test("normalizeVad limita gamas e rejeita engine invalida", () => {
+test("normalizeVad clamps ranges and rejects invalid engine", () => {
 	const v = normalizeVad({ engine: "nonsense" as never, onsetMs: 9999, hangoverMs: 0, prefillMs: -5 });
-	assert.equal(v.engine, DEFAULT_VAD.engine, "engine invalida cai no default");
+	assert.equal(v.engine, DEFAULT_VAD.engine, "invalid engine falls back to default");
 	assert.equal(v.onsetMs, 200);
 	assert.equal(v.hangoverMs, 200);
 	assert.equal(v.prefillMs, 0);
 });
 
-test("normalizeVad sem entrada devolve defaults", () => {
+test("normalizeVad with no input returns defaults", () => {
 	assert.deepEqual(normalizeVad(), DEFAULT_VAD);
 });

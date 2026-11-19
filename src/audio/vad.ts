@@ -181,7 +181,7 @@ export async function loadVadModule(): Promise<any> {
 			lastError = error;
 		}
 	}
-	throw new Error(`modulo de VAD nao encontrado: ${(lastError as Error)?.message ?? "import falhou"}`);
+	throw new Error(`VAD module not found: ${(lastError as Error)?.message ?? "import failed"}`);
 }
 
 /** Builds a `FrameScorer` for the requested engine. WASM failure falls back to RMS. */

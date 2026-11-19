@@ -1,5 +1,5 @@
 /**
- * Offline tests of the voice ↔ agent contract (same format as the handoff).
+ * Offline tests of the voice/agent contract (same format as the handoff).
  */
 
 import assert from "node:assert/strict";
@@ -13,74 +13,74 @@ import {
 	wrapDelegation,
 } from "../src/delegation.ts";
 
-test("delegação gera o envelope", () => {
+test("delegation produces the envelope", () => {
 	assert.equal(
-		wrapDelegation("rode os testes"),
-		"<realtime_delegation>\n  <input>rode os testes</input>\n</realtime_delegation>",
+		wrapDelegation("run the tests"),
+		"<realtime_delegation>\n  <input>run the tests</input>\n</realtime_delegation>",
 	);
 });
 
-test("envelope faz round-trip", () => {
-	const input = "corrija o bug do parser em ~/.pi/agent/extensions/voice/audio.ts";
+test("envelope round-trips", () => {
+	const input = "fix the parser bug in ~/.pi/agent/extensions/voice/audio.ts";
 	assert.equal(unwrapDelegation(wrapDelegation(input)), input);
 });
 
-test("caracteres XML sobrevivem ao round-trip", () => {
-	const input = 'compare <a> & <b> com "x" e <input>';
+test("XML characters survive the round-trip", () => {
+	const input = 'compare <a> & <b> with "x" and <input>';
 	const wrapped = wrapDelegation(input);
 	assert.ok(wrapped.includes("&lt;a&gt;"));
 	assert.equal(unwrapDelegation(wrapped), input);
 });
 
-test("transcript delta acompanha a delegação", () => {
-	const wrapped = wrapDelegation("continua", "user: e agora?\nassistant: okay");
-	assert.equal(delegationTranscript(wrapped), "user: e agora?\nassistant: okay");
+test("transcript delta accompanies the delegation", () => {
+	const wrapped = wrapDelegation("continue", "user: and now?\nassistant: okay");
+	assert.equal(delegationTranscript(wrapped), "user: and now?\nassistant: okay");
 	assert.ok(wrapped.indexOf("<input>") < wrapped.indexOf("<transcript_delta>"));
 });
 
-test("texto normal não é delegação", () => {
-	assert.equal(unwrapDelegation("só uma pergunta"), undefined);
-	assert.equal(unwrapDelegation("<realtime_delegation>\n  sem input\n</realtime_delegation>"), undefined);
-	assert.equal(delegationTranscript("sem transcript"), undefined);
+test("normal text is not a delegation", () => {
+	assert.equal(unwrapDelegation("just a question"), undefined);
+	assert.equal(unwrapDelegation("<realtime_delegation>\n  no input\n</realtime_delegation>"), undefined);
+	assert.equal(delegationTranscript("no transcript"), undefined);
 });
 
-test("resposta final ignora thinking e blocos de ferramenta", () => {
+test("final answer ignores thinking and tool blocks", () => {
 	const messages = [
-		{ role: "user", content: "rode os testes" },
+		{ role: "user", content: "run the tests" },
 		{
 			role: "assistant",
 			content: [
-				{ type: "thinking", thinking: "vou rodar" },
-				{ type: "text", text: "Rodei os testes, todos passaram." },
+				{ type: "thinking", thinking: "I will run them" },
+				{ type: "text", text: "I ran the tests, all passed." },
 				{ type: "toolCall", id: "1", name: "bash", arguments: {} },
 			],
 		},
 	];
-	assert.equal(finalAnswerText(messages), "Rodei os testes, todos passaram.");
+	assert.equal(finalAnswerText(messages), "I ran the tests, all passed.");
 });
 
-test("resposta final usa a última mensagem do assistente", () => {
+test("final answer uses the last assistant message", () => {
 	const messages = [
-		{ role: "assistant", content: [{ type: "text", text: "primeira" }] },
-		{ role: "toolResult", content: [{ type: "text", text: "saída" }] },
-		{ role: "assistant", content: [{ type: "text", text: "segunda" }] },
+		{ role: "assistant", content: [{ type: "text", text: "first" }] },
+		{ role: "toolResult", content: [{ type: "text", text: "output" }] },
+		{ role: "assistant", content: [{ type: "text", text: "second" }] },
 	];
-	assert.equal(finalAnswerText(messages), "segunda");
+	assert.equal(finalAnswerText(messages), "second");
 });
 
-test("resposta final vazia vira undefined", () => {
+test("empty final answer returns undefined", () => {
 	assert.equal(finalAnswerText([{ role: "assistant", content: [{ type: "thinking", thinking: "x" }] }]), undefined);
-	assert.equal(finalAnswerText([{ role: "user", content: "nada" }]), undefined);
+	assert.equal(finalAnswerText([{ role: "user", content: "nothing" }]), undefined);
 	assert.equal(finalAnswerText([]), undefined);
 });
 
-test("textos de retorno da V2", () => {
+test("V2 return texts", () => {
 	assert.equal(HANDOFF_COMPLETE_ACK, "Background agent finished. Use the preceding [BACKEND] messages as the result.");
 	assert.equal(STEER_ACK, "This was sent to steer the previous background agent task.");
 });
 
-test("origem transcript_tail_flush aparece no envelope", () => {
-	const text = wrapDelegation("oi", undefined, "transcript_tail_flush");
+test("source transcript_tail_flush appears in the envelope", () => {
+	const text = wrapDelegation("hi", undefined, "transcript_tail_flush");
 	assert.ok(text.includes("<source>transcript_tail_flush</source>"));
-	assert.equal(unwrapDelegation(text), "oi");
+	assert.equal(unwrapDelegation(text), "hi");
 });

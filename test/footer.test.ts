@@ -6,32 +6,32 @@ import { test } from "node:test";
 register("./stub-hooks.mjs", import.meta.url);
 const { createVoiceWidget, AutoGain, envelope, levelToUnit, meter, wave } = await import("../src/footer.ts");
 
-test("fala típica (RMS 0.02–0.1) gera barras acima do piso", () => {
+test("typical speech (RMS 0.02-0.1) produces bars above the floor", () => {
 	for (const rms of [0.02, 0.05, 0.1]) assert.ok(levelToUnit(rms) > 0.2, `rms ${rms}`);
 });
 
-test("silêncio fica no piso e pico fica no topo", () => {
+test("silence stays at the floor and peak reaches the top", () => {
 	assert.equal(levelToUnit(0), 0);
 	assert.equal(levelToUnit(1), 1);
 	assert.equal(meter(0), "▁▁▁▁▁▁▁▁▁▁");
 });
 
-test("onda tem largura fixa e mostra variação do histórico", () => {
+test("wave has fixed width and shows history variation", () => {
 	const bars = wave([0.1, 0.4, 0.9, 0.2, 0.6, 0.05].map(levelToUnit), 6);
 	assert.equal([...bars].length, 6);
 	assert.notEqual(new Set([...bars]).size, 1);
 });
 
-test("ataque sobe mais rápido que a liberação", () => {
+test("attack rises faster than release", () => {
 	assert.ok(envelope(0, 1) - 0 > 0.5);
 	assert.ok(1 - envelope(1, 0) < 0.5);
 });
 
-test("histórico curto é preenchido à esquerda com ▁", () => {
+test("short history is left-padded with low bars", () => {
 	assert.equal(wave([1], 6), "▁▁▁▁▁█");
 });
 
-test("ganho automático preenche a barra com microfone baixo e zera silêncio", () => {
+test("auto gain fills the bar with a low mic and zeroes silence", () => {
 	const gain = new AutoGain();
 	let last = 0;
 	for (let i = 0; i < 5; i++) last = gain.unit(0.004);
@@ -39,7 +39,7 @@ test("ganho automático preenche a barra com microfone baixo e zera silêncio", 
 	assert.equal(new AutoGain().unit(0.0005), 0);
 });
 
-test("widget descarta onda antiga ao mutar e não a restaura ao desmutar", (t) => {
+test("widget discards old wave on mute and does not restore it on unmute", (t) => {
 	t.mock.timers.enable({ apis: ["setInterval"] });
 	let phase = "listening";
 	let level = 0.04;
@@ -57,18 +57,18 @@ test("widget descarta onda antiga ao mutar e não a restaura ao desmutar", (t) =
 	} finally { widget.dispose(); }
 });
 
-test("atalho para parar permanece inteiro na largura disponível", () => {
+test("stop shortcut stays whole within the available width", () => {
 	const widget = createVoiceWidget(() => ({ phase: "listening", speaking: false }))(
 		{ requestRender() {} }, { fg: (_color, text) => text },
 	);
 	try {
 		const header = widget.render(60)[0];
-		assert.ok(header.length <= 60, `cabeçalho ocupa ${header.length} colunas`);
+		assert.ok(header.length <= 60, `header occupies ${header.length} columns`);
 		assert.ok(header.endsWith("/stt-live stop"));
 	} finally { widget.dispose(); }
 });
 
-test("mic e barras separadas ficam na mesma linha, com base visível no silêncio", () => {
+test("mic and bars share a row with a visible floor on silence", () => {
 	const widget = createVoiceWidget(() => ({ phase: "listening", speaking: false }))(
 		{ requestRender() {} }, { fg: (_color, text) => text },
 	);

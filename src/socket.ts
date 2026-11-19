@@ -1,19 +1,16 @@
 /**
  * WebSocket transport for the voice session.
  *
- * Mirrors the Codex realtime design: uses the `ws` library with an `Authorization` header. The
- * `OpenAI-Beta: realtime=v1` header is sent only in the beta dialect (legacy endpoint).
+ * Uses the `ws` library with an `Authorization` header (primary path).
+ * Falls back to Node's global `WebSocket` with an ephemeral client secret
+ * (OpenAI only). The mode used is shown in `/stt-live status`.
  *
- * `ws` is not resolvable by `import("ws")` from the extension directory,
- * but it is by `createRequire(process.argv[1])` - the pi entrypoint, which owns
- * the `node_modules` where it lives. If that resolution fails (running outside
- * pi, altered install), we fall back to the Node global `WebSocket`, which does not accept
- * headers: in that case the API key is swapped for an ephemeral client secret sent
- * in a subprotocol. The mode used is shown in `/stt-live status`.
+ * The `baseUrl` is provider-specific: derived from the profile's provider
+ * (openai, llama.cpp, models.json custom). The WebSocket URL is built by
+ * swapping http(s) to ws(s) and appending /realtime?model=...
  */
 
 import { createRequire } from "node:module";
-import { API_BASE } from "./config.ts";
 
 export type AuthMode = "header" | "ephemeral-subprotocol";
 export type SocketImpl = "ws" | "global-websocket";
@@ -32,7 +29,7 @@ export interface SocketHandlers {
 
 export interface VoiceSocket {
 	readonly transport: TransportInfo;
-	/** true only in the OPEN state. `send()` outside it throws (`ws` and global WebSocket). */
+	/** true only in the OPEN state. */
 	isOpen(): boolean;
 	send(data: string): void;
 	close(): void;
@@ -68,10 +65,21 @@ export function loadWs(): WsCtor | undefined {
 	return undefined;
 }
 
-async function mintEphemeralKey(apiKey: string, model: string): Promise<string> {
+/** Converts an HTTP(S) baseUrl to a WebSocket URL for /realtime. */
+export function wsUrlFromBase(baseUrl: string, model: string): string {
+	const ws = baseUrl.replace(/^http:/, "ws:").replace(/^https:/, "wss:").replace(/\/+$/, "");
+	return `${ws}/realtime?model=${encodeURIComponent(model)}`;
+}
+
+/** True if the baseUrl is OpenAI's hosted API. */
+function isOpenAI(baseUrl: string): boolean {
+	return baseUrl.includes("api.openai.com");
+}
+
+async function mintEphemeralKey(baseUrl: string, apiKey: string, model: string): Promise<string> {
 	const attempts = [
-		{ url: `${API_BASE}/realtime/client_secrets`, body: { session: { type: "realtime", model } } },
-		{ url: `${API_BASE}/realtime/sessions`, body: { model } },
+		{ url: `${baseUrl}/realtime/client_secrets`, body: { session: { type: "realtime", model } } },
+		{ url: `${baseUrl}/realtime/sessions`, body: { model } },
 	];
 	let lastError = "";
 	for (const attempt of attempts) {
@@ -81,7 +89,7 @@ async function mintEphemeralKey(apiKey: string, model: string): Promise<string> 
 			body: JSON.stringify(attempt.body),
 		});
 		if (!response.ok) {
-			lastError = `${attempt.url} → HTTP ${response.status} ${(await response.text()).slice(0, 200)}`;
+			lastError = `${attempt.url} -> HTTP ${response.status} ${(await response.text()).slice(0, 200)}`;
 			continue;
 		}
 		const payload = (await response.json()) as Record<string, any>;
@@ -91,16 +99,15 @@ async function mintEphemeralKey(apiKey: string, model: string): Promise<string> 
 			payload.client_secret ??
 			payload.session?.client_secret?.value;
 		if (typeof value === "string" && value) return value;
-		lastError = `${attempt.url} → resposta sem client secret`;
+		lastError = `${attempt.url} -> response without client secret`;
 	}
-	throw new Error(`não foi possível obter client secret: ${lastError}`);
+	throw new Error(`failed to obtain client secret: ${lastError}`);
 }
 
 export type SocketDialect = "ga" | "beta";
 
 /**
- * Handshake headers. GA (`/v1/realtime`) accepts only Authorization: the
- * `OpenAI-Beta` header makes the API reject with "The Realtime Beta API is no longer supported".
+ * Handshake headers. GA (/v1/realtime) accepts only Authorization.
  */
 export function buildHandshakeHeaders(apiKey: string, dialect: SocketDialect): Record<string, string> {
 	const headers: Record<string, string> = { Authorization: `Bearer ${apiKey}` };
@@ -118,12 +125,13 @@ export function buildSubprotocols(secret: string, dialect: SocketDialect): strin
 export interface OpenSocketOptions {
 	apiKey: string;
 	model: string;
+	baseUrl: string;
 	dialect?: SocketDialect;
 	handlers: SocketHandlers;
 }
 
 export async function openRealtimeSocket(options: OpenSocketOptions): Promise<VoiceSocket> {
-	const url = `wss://api.openai.com/v1/realtime?model=${encodeURIComponent(options.model)}`;
+	const url = wsUrlFromBase(options.baseUrl, options.model);
 	const Ws = loadWs();
 	const dialect = options.dialect ?? "ga";
 
@@ -145,12 +153,20 @@ export async function openRealtimeSocket(options: OpenSocketOptions): Promise<Vo
 		};
 	}
 
-	const secret = await mintEphemeralKey(options.apiKey, options.model);
+	// Global WebSocket fallback: requires an ephemeral client secret (OpenAI only).
+	if (!isOpenAI(options.baseUrl)) {
+		throw new Error(
+			"ws module not available; this provider requires Authorization header auth. " +
+			"Install ws in pi's node_modules or use the /stt-live with a provider that supports header auth.",
+		);
+	}
+
+	const secret = await mintEphemeralKey(options.baseUrl, options.apiKey, options.model);
 	const socket = new WebSocket(url, buildSubprotocols(secret, dialect));
 	socket.addEventListener("open", () => options.handlers.onOpen());
 	socket.addEventListener("message", (event: MessageEvent) => options.handlers.onMessage(String(event.data)));
 	socket.addEventListener("close", (event: CloseEvent) => options.handlers.onClose(event.code, event.reason));
-	socket.addEventListener("error", () => options.handlers.onError(new Error("erro no WebSocket realtime")));
+	socket.addEventListener("error", () => options.handlers.onError(new Error("realtime WebSocket error")));
 	return {
 		transport: { impl: "global-websocket", authMode: "ephemeral-subprotocol" },
 		isOpen: () => socket.readyState === WS_OPEN,

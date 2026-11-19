@@ -1,4 +1,15 @@
-# Plan - voice as the pi session channel
+# Plano obsoleto (PT-BR) - voz como canal da sessão pi
+
+> **Este plano é histórico e está obsoleto.** Mantido no repositório só para
+> consulta. Ele pertence ao modelo "oreia e boca" da ADR 0001, em que a voz
+> apenas transcreve a entrada e sintetiza a saída. A ADR 0002 substitui esse
+> modelo: a sessão realtime agora fala por si e delega o trabalho ao agente.
+> Este plano **não** é mais o caminho de implementação.
+>
+> This plan is historical and obsolete. It is kept for reference only. See the
+> superseded decisions in `docs/adr/0001-sessao-pi-unica-cabeca.md` and its
+> replacement in `docs/adr/0002-paridade-codex-realtime-v2.md`. The current
+> implementation plan is `docs/plan-implementation.md`.
 
 Reference decisions: `docs/adr/0001-sessao-pi-unica-cabeca.md` and `glossary.md`. This plan does not implement anything yet.
 

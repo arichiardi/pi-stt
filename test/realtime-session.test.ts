@@ -8,7 +8,7 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { DEFAULT_SETTINGS } from "../src/config.ts";
+import { DEFAULT_PROVIDER } from "../src/config.ts";
 import { RealtimeSession, type VoiceEvent } from "../src/realtime.ts";
 import type { OpenSocketOptions, VoiceSocket } from "../src/socket.ts";
 
@@ -69,8 +69,8 @@ const tick = () => new Promise((r) => setImmediate(r));
 function makeSession(transport: ReturnType<typeof fakeTransport>, overrides: { onClose?: (r: string) => void } = {}) {
 	const events: VoiceEvent[] = [];
 	const session = new RealtimeSession({
-		apiKey: "test-key",
-		settings: DEFAULT_SETTINGS,
+		apiKey: "test-key", baseUrl: "https://api.openai.com/v1",
+		settings: DEFAULT_PROVIDER,
 		dialect: "ga",
 		openSocket: transport.openSocket,
 		onEvent: (event) => events.push(event),
@@ -81,7 +81,7 @@ function makeSession(transport: ReturnType<typeof fakeTransport>, overrides: { o
 
 const audio = Buffer.alloc(960);
 
-test("connect só resolve quando session.updated chega, não ao criar o socket", async () => {
+test("connect resolves only when session.updated arrives, not on socket creation", async () => {
 	const transport = fakeTransport();
 	const { session } = makeSession(transport);
 
@@ -89,13 +89,13 @@ test("connect só resolve quando session.updated chega, não ao criar o socket",
 	const connecting = session.connect().then(() => (resolved = true));
 
 	await new Promise((r) => setImmediate(r));
-	assert.equal(resolved, false, "não pode estar pronto antes de abrir");
+	assert.equal(resolved, false, "must not be ready before opening");
 
 	await tick();
 	transport.open();
 	transport.message({ type: "session.created" });
 	await new Promise((r) => setImmediate(r));
-	assert.equal(resolved, false, "session.created não é configuração aplicada");
+	assert.equal(resolved, false, "session.created is not an applied configuration");
 
 	transport.message({ type: "session.updated" });
 	await connecting;
@@ -103,7 +103,7 @@ test("connect só resolve quando session.updated chega, não ao criar o socket",
 	assert.equal(transport.sent.length, 1, "exatamente um session.update");
 });
 
-test("áudio antes de pronto é descartado sem lançar nem enviar", async () => {
+test("audio before ready is discarded without throwing or sending", async () => {
 	const transport = fakeTransport();
 	const { session } = makeSession(transport);
 	void session.connect().catch(() => {});
@@ -112,7 +112,7 @@ test("áudio antes de pronto é descartado sem lançar nem enviar", async () => 
 	assert.equal(transport.sent.length, 0);
 });
 
-test("áudio após pronto é enviado", async () => {
+test("audio after ready is sent", async () => {
 	const transport = fakeTransport();
 	const { session } = makeSession(transport);
 	const connecting = session.connect();
@@ -137,7 +137,7 @@ test("erro antes de pronto rejeita connect e bloqueia envios", async () => {
 	assert.equal(transport.sent.length, 0);
 });
 
-test("erro de configuração do servidor antes de pronto rejeita connect", async () => {
+test("server config error before ready rejects connect", async () => {
 	const transport = fakeTransport();
 	const { session } = makeSession(transport);
 	const connecting = session.connect();
@@ -148,7 +148,7 @@ test("erro de configuração do servidor antes de pronto rejeita connect", async
 	await assert.rejects(connecting, /unknown parameter/);
 });
 
-test("close durante conexão rejeita connect sem lançar", async () => {
+test("close during connection rejects connect without throwing", async () => {
 	const transport = fakeTransport();
 	const { session } = makeSession(transport);
 	const connecting = session.connect();
@@ -159,7 +159,7 @@ test("close durante conexão rejeita connect sem lançar", async () => {
 	assert.doesNotThrow(() => session.appendAudio(audio));
 });
 
-test("falha de envio depois de pronto encerra a voz sem lançar", async () => {
+test("send failure after ready ends voice without throwing", async () => {
 	const transport = fakeTransport();
 	let closeReason: string | undefined;
 	let closeCount = 0;
@@ -179,23 +179,23 @@ test("falha de envio depois de pronto encerra a voz sem lançar", async () => {
 	transport.drop();
 	assert.doesNotThrow(() => session.appendAudio(audio));
 	assert.doesNotThrow(() => session.appendAudio(audio));
-	assert.equal(closeCount, 1, "encerra uma única vez");
+	assert.equal(closeCount, 1, "closes exactly once");
 	assert.ok(closeReason);
 });
 
-test("o dialeto da sessão chega ao handshake", async () => {
+test("session dialect reaches the handshake", async () => {
 	const seen: Array<string | undefined> = [];
 	const session = new RealtimeSession({
-		apiKey: "test-key",
-		settings: DEFAULT_SETTINGS,
+		apiKey: "test-key", baseUrl: "https://api.openai.com/v1",
+		settings: DEFAULT_PROVIDER,
 		dialect: "ga",
 		openSocket: async (options: OpenSocketOptions) => {
 			seen.push(options.dialect);
-			throw new Error("parado de propósito");
+			throw new Error("stopped on purpose");
 		},
 		onEvent: () => {},
 	});
-	await assert.rejects(session.connect(), /parado de propósito/);
+	await assert.rejects(session.connect(), /stopped on purpose/);
 	assert.deepEqual(seen, ["ga"]);
 });
 
@@ -210,7 +210,7 @@ async function readySession() {
 	return { transport, session, events };
 }
 
-test("barge-in trunca o áudio já emitido e não envia response.cancel", async () => {
+test("barge-in truncates emitted audio and does not send response.cancel", async () => {
 	const { transport } = await readySession();
 	// 48 000 bytes of PCM16 at 24 kHz = 1000 ms of audio.
 	transport.message({ type: "response.output_audio.delta", item_id: "item_9", delta: Buffer.alloc(48_000).toString("base64") });
@@ -220,19 +220,19 @@ test("barge-in trunca o áudio já emitido e não envia response.cancel", async 
 	assert.ok(!transport.sent.some((s) => s.includes("response.cancel")), "o servidor cancela sozinho (interrupt_response)");
 });
 
-test("barge-in sem áudio emitido não trunca", async () => {
+test("barge-in with no emitted audio does not truncate", async () => {
 	const { transport } = await readySession();
 	const before = transport.sent.length;
 	transport.message({ type: "input_audio_buffer.speech_started" });
 	assert.equal(transport.sent.length, before);
 });
 
-test("response.create enquanto há resposta ativa é adiado até response.done (fila de 1)", async () => {
+test("response.create while active is deferred until response.done (queue of 1)", async () => {
 	const { transport, session } = await readySession();
 	transport.message({ type: "response.created" });
 	const before = transport.sent.length;
 	session.createResponse();
-	assert.equal(transport.sent.length, before, "não cria resposta em paralelo");
+	assert.equal(transport.sent.length, before, "does not create a parallel response");
 	transport.message({ type: "response.done" });
 	const next = transport.sent.slice(before).map((s) => JSON.parse(s));
 	assert.deepEqual(next, [{ type: "response.create" }]);
@@ -275,8 +275,8 @@ test("commitAndRespond com commitResponse=false envia so o commit", async () => 
 	const transport = fakeTransport();
 	const events: VoiceEvent[] = [];
 	const session = new RealtimeSession({
-		apiKey: "test-key",
-		settings: { ...DEFAULT_SETTINGS, vad: { ...DEFAULT_SETTINGS.vad, engine: "rms", commitResponse: false } },
+		apiKey: "test-key", baseUrl: "https://api.openai.com/v1",
+		settings: { ...DEFAULT_PROVIDER, vad: { ...DEFAULT_PROVIDER.vad, engine: "rms", commitResponse: false } },
 		openSocket: transport.openSocket,
 		onEvent: (e) => events.push(e),
 	});

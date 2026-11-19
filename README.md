@@ -148,8 +148,8 @@ once. The microphone never freezes.
 
 `@ozymandiasthegreat/vad` ships its WASM in the npm package. `npm install` brings
 it. `brew install libfvad` does not exist on macOS. The WASM path is used in
-production. `arecord` AEC capture is Linux, so validate VAD on Linux with
-`llama.cpp`. See `docs/plan-implementation.md`.
+production. AEC capture uses PulseAudio/PipeWire (`parec`/`pacat`) and is Linux,
+so validate VAD on Linux with `llama.cpp`. See `docs/plan-implementation.md`.
 
 Set a non-off engine to try it:
 

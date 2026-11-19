@@ -50,7 +50,7 @@ test("framing: reset descarta o parcial (mute)", () => {
 	assert.deepEqual(chunker.push(Buffer.alloc(960, 1)).map((frame) => frame.length), [960]);
 });
 
-test("framing: bytes são preservados na ordem", () => {
+test("framing: bytes are preserved in order", () => {
 	const chunker = new FrameChunker(4);
 	const first = chunker.push(Buffer.from([1, 2, 3]))[0];
 	assert.equal(first, undefined);
@@ -60,7 +60,7 @@ test("framing: bytes são preservados na ordem", () => {
 });
 
 for (const level of fixture.levels) {
-	test(`nível RMS: ${level.name}`, () => {
+	test(`RMS level: ${level.name}`, () => {
 		const pcm = Buffer.alloc(level.samples * BYTES_PER_SAMPLE);
 		const value = Math.round(level.amplitude * 32767);
 		for (let i = 0; i < level.samples; i++) pcm.writeInt16LE(value, i * BYTES_PER_SAMPLE);
@@ -70,7 +70,7 @@ for (const level of fixture.levels) {
 	});
 }
 
-test("nível RMS: buffer vazio é zero", () => {
+test("RMS level: empty buffer is zero", () => {
 	assert.equal(rmsLevel(Buffer.alloc(0)), 0);
 });
 
@@ -94,7 +94,7 @@ test("backends por SO", () => {
 	assert.equal(playBackend("darwin").command, "ffplay");
 });
 
-test("backend padrão do host atual responde", () => {
+test("default backend of the current host responds", () => {
 	assert.ok(captureBackend().args.length > 0);
 	assert.ok(playBackend().args.length > 0);
 });

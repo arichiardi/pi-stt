@@ -6,7 +6,7 @@
  * 2. Transport: WebSocket PCM16 instead of WebRTC (Node has no native helper).
  */
 
-import type { VoiceSettings } from "./config.ts";
+import type { SttEntry } from "./config.ts";
 import { openRealtimeSocket, type OpenSocketOptions, type TransportInfo, type VoiceSocket } from "./socket.ts";
 
 export type VoiceEvent =
@@ -78,7 +78,7 @@ export function parseRealtimeEvent(raw: unknown): VoiceEvent | null {
 			return { kind: "response_done" };
 
 		case "error": {
-			const message = String(event.error?.message ?? event.message ?? "erro realtime");
+			const message = String(event.error?.message ?? event.message ?? "realtime error");
 			// Wrong-payload hints are reported, not silently fixed.
 			const dialectHint = /unknown (parameter|field)|not supported|invalid (value|type)|audio.*(format|config)/i.test(message);
 			return { kind: "error", message, dialectHint };
@@ -94,9 +94,9 @@ export function parseRealtimeEvent(raw: unknown): VoiceEvent | null {
 				const args = JSON.parse(String(event.arguments ?? "{}"));
 				prompt = String(args.prompt ?? "").trim();
 			} catch {
-				return { kind: "error", message: "argumentos inválidos em background_agent", dialectHint: false };
+				return { kind: "error", message: "invalid arguments in background_agent", dialectHint: false };
 			}
-			if (!prompt) return { kind: "error", message: "background_agent sem pedido", dialectHint: false };
+			if (!prompt) return { kind: "error", message: "background_agent called with no prompt", dialectHint: false };
 			return { kind: "background_agent", callId, prompt };
 		}
 
@@ -115,7 +115,7 @@ export function buildInstructions(backendPrompt: string, startupContext = ""): s
  * `model` goes in the URL.
  */
 export function buildSessionUpdate(
-	settings: VoiceSettings,
+	settings: SttEntry,
 	instructions: string,
 ): Record<string, unknown> {
 	return {
@@ -179,7 +179,8 @@ export function developerItem(text: string): Record<string, unknown> {
 
 export interface RealtimeSessionOptions {
 	apiKey: string;
-	settings: VoiceSettings;
+	baseUrl: string;
+	settings: SttEntry;
 	/** Full instructions (backend prompt + startup context). */
 	instructions: string;
 	/** Developer item sent after `session.updated` (session start). */
@@ -224,13 +225,13 @@ export class RealtimeSession {
 
 	/** Resolves only when `session.updated` arrives. Rejects on error, close, or timeout. */
 	connect(): Promise<void> {
-		if (this.state !== "idle") return Promise.reject(new Error("sessão realtime já iniciada"));
+		if (this.state !== "idle") return Promise.reject(new Error("realtime session already started"));
 		this.state = "connecting";
 		const ready = new Promise<void>((resolve, reject) => {
 			this.setup = { resolve, reject };
 		});
 		ready.catch(() => {});
-		const timer = setTimeout(() => this.failSetup(new Error("tempo esgotado ao conectar na voz")), CONNECT_TIMEOUT_MS);
+		const timer = setTimeout(() => this.failSetup(new Error("timed out connecting to voice")), CONNECT_TIMEOUT_MS);
 		void this.open().catch((error: Error) => this.failSetup(error));
 		return ready.finally(() => clearTimeout(timer));
 	}
@@ -240,6 +241,7 @@ export class RealtimeSession {
 		const socket = await openSocket({
 			apiKey: this.options.apiKey,
 			model: this.options.settings.model,
+			baseUrl: this.options.baseUrl,
 			dialect: "ga",
 			handlers: {
 				onOpen: () => {
@@ -249,7 +251,7 @@ export class RealtimeSession {
 				},
 				onMessage: (data) => this.handleMessage(data),
 				onClose: (code, reason) => {
-					const why = `conexão realtime encerrada (${code}${reason ? `: ${reason}` : ""})`;
+					const why = `realtime connection closed (${code}${reason ? `: ${reason}` : ""})`;
 					this.socket = undefined;
 					if (this.state === "connecting" || this.state === "configuring") {
 						this.failSetup(new Error(why));
@@ -330,14 +332,14 @@ export class RealtimeSession {
 	private send(event: Record<string, unknown>): boolean {
 		const socket = this.socket;
 		if (!socket || !socket.isOpen()) {
-			this.fatal("conexão de voz não está aberta");
+			this.fatal("voice connection is not open");
 			return false;
 		}
 		try {
 			socket.send(JSON.stringify(event));
 			return true;
 		} catch (error) {
-			this.fatal(`falha ao enviar à voz: ${(error as Error).message}`);
+			this.fatal(`failed to send to voice: ${(error as Error).message}`);
 			return false;
 		}
 	}
@@ -446,6 +448,6 @@ export class RealtimeSession {
 		if (this.state === "closed") return;
 		this.state = "closed";
 		this.closeSocket();
-		this.setup?.reject(new Error("sessão de voz encerrada antes de ficar pronta"));
+		this.setup?.reject(new Error("voice session ended before it became ready"));
 	}
 }

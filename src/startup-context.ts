@@ -57,8 +57,8 @@ export function buildStartupContext(
 	budget = STARTUP_CONTEXT_TOKEN_BUDGET,
 ): string {
 	const header = [
-		"Contexto desta sessão de voz (montado ao iniciar a conversa a partir dos turnos recentes do agente e do diretório de trabalho).",
-		`Diretório de trabalho: ${cwd}`,
+		"Context for this voice session (assembled at start from recent agent turns and the working directory).",
+		`Working directory: ${cwd}`,
 	];
 	let remaining = budget - approxTokens(header.join("\n"));
 	const picked: string[] = [];
@@ -72,5 +72,5 @@ export function buildStartupContext(
 		remaining -= cost;
 	}
 	if (picked.length === 0) return header.join("\n");
-	return [...header, "Turnos recentes (do mais antigo ao mais recente):", ...picked.reverse()].join("\n");
+	return [...header, "Recent turns (oldest to newest):", ...picked.reverse()].join("\n");
 }

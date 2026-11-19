@@ -8,22 +8,22 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { buildHandshakeHeaders, buildSubprotocols } from "../src/socket.ts";
 
-test("GA: handshake não envia header beta", () => {
+test("GA: handshake does not send beta header", () => {
 	const headers = buildHandshakeHeaders("test-key", "ga");
 	assert.equal(headers.Authorization, "Bearer test-key");
 	assert.equal("OpenAI-Beta" in headers, false);
 });
 
-test("beta: mantém header beta para o endpoint legado", () => {
+test("beta: keeps beta header for the legacy endpoint", () => {
 	const headers = buildHandshakeHeaders("test-key", "beta");
 	assert.equal(headers["OpenAI-Beta"], "realtime=v1");
 });
 
-test("subprotocolo GA não usa openai-beta.realtime-v1", () => {
+test("GA subprotocol does not use openai-beta.realtime-v1", () => {
 	const protocols = buildSubprotocols("secret", "ga");
 	assert.deepEqual(protocols, ["realtime", "openai-insecure-api-key.secret"]);
 });
 
-test("subprotocolo beta mantém o marcador legado", () => {
+test("beta subprotocol keeps the legacy marker", () => {
 	assert.ok(buildSubprotocols("secret", "beta").includes("openai-beta.realtime-v1"));
 });

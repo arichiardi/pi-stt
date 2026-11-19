@@ -9,7 +9,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { DEFAULT_SETTINGS } from "../src/config.ts";
+import { DEFAULT_PROVIDER } from "../src/config.ts";
 import { BACKGROUND_AGENT_TOOL, REMAIN_SILENT_TOOL, buildInstructions, buildSessionUpdate, developerItem, parseRealtimeEvent } from "../src/realtime.ts";
 import { backendPrompt, START_INSTRUCTIONS, END_INSTRUCTIONS } from "../src/prompts.ts";
 
@@ -36,14 +36,14 @@ for (const testCase of fixture) {
 	});
 }
 
-test("lixo não vira evento", () => {
+test("garbage does not become an event", () => {
 	assert.equal(parseRealtimeEvent(null), null);
 	assert.equal(parseRealtimeEvent("texto"), null);
 	assert.equal(parseRealtimeEvent({ no: "type" }), null);
 });
 
-test("payload V2: conversa com resposta automática e VAD do servidor", () => {
-	const session = buildSessionUpdate(DEFAULT_SETTINGS, "instr") as any;
+test("V2 payload: conversation with auto-response and server VAD", () => {
+	const session = buildSessionUpdate(DEFAULT_PROVIDER, "instr") as any;
 	assert.equal(session.type, "session.update");
 	assert.equal(session.session.type, "realtime");
 	assert.deepEqual(session.session.output_modalities, ["audio"]);
@@ -54,14 +54,14 @@ test("payload V2: conversa com resposta automática e VAD do servidor", () => {
 	assert.equal(turn.silence_duration_ms, 500);
 	assert.equal(session.session.audio.input.noise_reduction.type, "near_field");
 	assert.equal(session.session.audio.input.transcription.model, "gpt-4o-mini-transcribe");
-	assert.equal(session.session.audio.output.voice, DEFAULT_SETTINGS.voice);
+	assert.equal(session.session.audio.output.voice, DEFAULT_PROVIDER.voice);
 	assert.equal(session.session.tool_choice, "auto");
 	assert.equal(session.session.instructions, "instr");
 	assert.equal(session.session.model, undefined, "modelo vai na URL");
 });
 
 test("payload V2 declara background_agent e remain_silent com os nomes da API", () => {
-	const tools = (buildSessionUpdate(DEFAULT_SETTINGS, "x") as any).session.tools as Array<any>;
+	const tools = (buildSessionUpdate(DEFAULT_PROVIDER, "x") as any).session.tools as Array<any>;
 	assert.deepEqual(
 		tools.map((tool) => tool.name),
 		[BACKGROUND_AGENT_TOOL, REMAIN_SILENT_TOOL],
@@ -71,18 +71,18 @@ test("payload V2 declara background_agent e remain_silent com os nomes da API", 
 });
 
 test("vad cliente ativo => turn_detection null; off => server_vad preservado", () => {
-	const client = { ...DEFAULT_SETTINGS, vad: { ...DEFAULT_SETTINGS.vad, engine: "webrtc_fvad" as const } };
+	const client = { ...DEFAULT_PROVIDER, vad: { ...DEFAULT_PROVIDER.vad, engine: "webrtc_fvad" as const } };
 	assert.equal((buildSessionUpdate(client, "x") as any).session.audio.input.turn_detection, null);
-	const rms = { ...DEFAULT_SETTINGS, vad: { ...DEFAULT_SETTINGS.vad, engine: "rms" as const } };
+	const rms = { ...DEFAULT_PROVIDER, vad: { ...DEFAULT_PROVIDER.vad, engine: "rms" as const } };
 	assert.equal((buildSessionUpdate(rms, "x") as any).session.audio.input.turn_detection, null);
-	assert.equal((buildSessionUpdate(DEFAULT_SETTINGS, "x") as any).session.audio.input.turn_detection.type, "server_vad");
+	assert.equal((buildSessionUpdate(DEFAULT_PROVIDER, "x") as any).session.audio.input.turn_detection.type, "server_vad");
 });
 
-test("modelo default prioriza custo-benefício", () => {
-	assert.equal(DEFAULT_SETTINGS.model, "gpt-realtime-2.1-mini");
+test("default model prioritizes cost-effectiveness", () => {
+	assert.equal(DEFAULT_PROVIDER.model, "gpt-realtime-2.1-mini");
 });
 
-test("instruções: backend prompt, com contexto de início quando houver", () => {
+test("instructions: backend prompt, with startup context when present", () => {
 	const prompt = backendPrompt("Igor");
 	assert.ok(prompt.startsWith("## Identity, tone, and role"));
 	assert.ok(prompt.includes("The user's name is Igor."));
@@ -91,7 +91,7 @@ test("instruções: backend prompt, com contexto de início quando houver", () =
 	assert.equal(buildInstructions(prompt, "Contexto X"), `${prompt.trim()}\n\nContexto X`);
 });
 
-test("developer items de início e fim vêm dos templates", () => {
+test("start and end developer items come from templates", () => {
 	assert.ok(START_INSTRUCTIONS.startsWith("Realtime conversation started."));
 	assert.ok(END_INSTRUCTIONS.startsWith("Realtime conversation ended."));
 	const item = developerItem("oi") as any;

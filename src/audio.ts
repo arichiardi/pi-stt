@@ -208,7 +208,7 @@ export class Recorder {
 			// Intentional SIGTERM (stop) is not a failure: arecord exits with 1 in this case.
 			if (!this.stopping && code && code !== 0) {
 				this.handlers.onError(
-					new Error(`${backend.command} saiu com código ${code}${error ? `: ${error}` : ""}`),
+					new Error(`${backend.command} exited with code ${code}${error ? `: ${error}` : ""}`),
 				);
 			}
 			this.handlers.onExit?.(code);

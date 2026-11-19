@@ -9,7 +9,7 @@ import { ensurePreview, previewPath, PREVIEW_MODEL } from "../src/previews.ts";
 const pcmResponse = (bytes: number[], status = 200) =>
 	new Response(Buffer.from(bytes), { status });
 
-test("gera a prévia uma vez, grava em cache e não chama a API de novo", async () => {
+test("generates the preview once, caches it, and does not call the API again", async () => {
 	const dir = mkdtempSync(join(tmpdir(), "vp-"));
 	const calls: { url: string; body: any; auth: string | null }[] = [];
 	const fetchImpl = async (url: string, init: RequestInit) => {
@@ -30,7 +30,7 @@ test("gera a prévia uma vez, grava em cache e não chama a API de novo", async 
 	assert.deepEqual(readdirSync(dir), ["marin.pcm"]);
 });
 
-test("erro HTTP da API vira exceção clara e não deixa cache", async () => {
+test("HTTP API error becomes a clear exception and leaves no cache", async () => {
 	const dir = mkdtempSync(join(tmpdir(), "vp-"));
 	const fetchImpl = async () => new Response("voice not supported", { status: 400 });
 	await assert.rejects(ensurePreview("cedar", "k", { dir, fetchImpl }), /cedar.*HTTP 400/);
@@ -38,8 +38,8 @@ test("erro HTTP da API vira exceção clara e não deixa cache", async () => {
 	assert.deepEqual(readdirSync(dir), []);
 });
 
-test("resposta vazia é rejeitada", async () => {
+test("empty response is rejected", async () => {
 	const dir = mkdtempSync(join(tmpdir(), "vp-"));
 	const fetchImpl = async () => pcmResponse([]);
-	await assert.rejects(ensurePreview("ash", "k", { dir, fetchImpl }), /veio vazia/);
+	await assert.rejects(ensurePreview("ash", "k", { dir, fetchImpl }), /returned empty audio/);
 });
