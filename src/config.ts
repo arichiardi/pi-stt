@@ -11,8 +11,8 @@
  * stt.json format:
  * {
  *   "providers": {
- *     "openai":    { "model": "gpt-realtime-2.1-mini", "voice": "marin", "vad": { "engine": "off" } },
- *     "llama.cpp": { "model": "qwen2.5-omni-7b", "vad": { "engine": "webrtc_fvad" } }
+ *     "openai":    { "model": "gpt-realtime-2.1-mini", "voice": "marin", "vad": { "engine": "server" } },
+ *     "llama.cpp": { "model": "qwen2.5-omni-7b", "vad": { "engine": "fvad" } }
  *   }
  * }
  */
@@ -45,9 +45,9 @@ export type VoiceName = (typeof VOICES)[number];
 // VAD
 // ---------------------------------------------------------------------------
 
-/** Client-side VAD engine. `off` keeps the server VAD (OpenAI). */
-export type VadEngine = "webrtc_fvad" | "rms" | "off";
-/** WebRTC VAD (libfvad) aggressiveness; ignored by the `rms` engine. */
+/** Client-side VAD engine. `server` keeps the provider VAD; `fvad`/`rms` are client gates. */
+export type VadEngine = "fvad" | "rms" | "server";
+/** libfvad (WebRTC VAD GMM) aggressiveness; ignored by the `rms` engine. */
 export type VadMode = "normal" | "low_bitrate" | "aggressive" | "very_aggressive";
 
 export interface VadSettings {
@@ -65,11 +65,14 @@ export interface VadSettings {
 	commitResponse: boolean;
 }
 
-export const VAD_ENGINES: readonly VadEngine[] = ["webrtc_fvad", "rms", "off"];
+export const VAD_ENGINES: readonly VadEngine[] = ["fvad", "rms", "server"];
 export const VAD_MODES: readonly VadMode[] = ["normal", "low_bitrate", "aggressive", "very_aggressive"];
 
+/** Legacy aliases accepted in stt.json and the vad command. */
+const VAD_ENGINE_ALIASES: Record<string, VadEngine> = { off: "server", webrtc_fvad: "fvad" };
+
 export const DEFAULT_VAD: VadSettings = {
-	engine: "off",
+	engine: "server",
 	mode: "aggressive",
 	onsetMs: 60,
 	hangoverMs: 700,
@@ -79,15 +82,24 @@ export const DEFAULT_VAD: VadSettings = {
 
 /** VAD defaults per provider (static). Overridable in the entry. */
 export function vadDefaultsForProvider(provider: string): VadSettings {
-	if (provider === "openai") return { ...DEFAULT_VAD, engine: "off" };
-	return { ...DEFAULT_VAD, engine: "webrtc_fvad" };
+	if (provider === "openai") return { ...DEFAULT_VAD, engine: "server" };
+	return { ...DEFAULT_VAD, engine: "fvad" };
+}
+
+/** Maps a raw engine string (with legacy aliases) to a canonical VadEngine, or undefined. */
+export function normalizeVadEngine(raw: string): VadEngine | undefined {
+	const mapped = VAD_ENGINE_ALIASES[raw] ?? raw;
+	return (VAD_ENGINES as readonly string[]).includes(mapped) ? (mapped as VadEngine) : undefined;
 }
 
 /** Merge and clamp the VAD settings. Out-of-range values fall back to the default. */
 export function normalizeVad(raw?: Partial<VadSettings>): VadSettings {
 	const base = { ...DEFAULT_VAD };
 	if (!raw) return base;
-	if (raw.engine && VAD_ENGINES.includes(raw.engine)) base.engine = raw.engine;
+	if (raw.engine) {
+		const engine = normalizeVadEngine(raw.engine);
+		if (engine) base.engine = engine;
+	}
 	if (raw.mode && VAD_MODES.includes(raw.mode)) base.mode = raw.mode;
 	base.onsetMs = clamp(raw.onsetMs, base.onsetMs, 20, 200);
 	base.hangoverMs = clamp(raw.hangoverMs, base.hangoverMs, 200, 2000);

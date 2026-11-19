@@ -131,7 +131,7 @@ export function buildSessionUpdate(
 					transcription: { model: INPUT_TRANSCRIPTION_MODEL },
 					// Active client VAD => the server detects no boundaries. Without this,
 					// server_vad + client commit create double boundaries (R2).
-					turn_detection: settings.vad && settings.vad.engine !== "off" ? null : {
+					turn_detection: settings.vad && settings.vad.engine !== "server" ? null : {
 						type: "server_vad",
 						interrupt_response: true,
 						create_response: true,

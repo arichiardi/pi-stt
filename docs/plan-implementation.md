@@ -95,7 +95,7 @@ push(frame):
 
 ## Session contract (`realtime.ts`)
 
-- `buildSessionUpdate()`: when `vad.engine !== "off"`, set `audio.input.turn_detection` to **`null`** (do not send `server_vad`). Otherwise keep `server_vad` as today.
+- `buildSessionUpdate()`: when `vad.engine !== "server"`, set `audio.input.turn_detection` to **`null`** (do not send `server_vad`). Otherwise keep `server_vad` as today.
 - `commit(): void` → sends `input_audio_buffer.commit` (state-gated `ready`), same as `appendAudio`.
 - `commitAndRespond(): void` → calls `commit()`, then `createResponse()` when `commitResponse`.
 - **Barge-in:** with `turn_detection: null`, the server **does not** send `input_audio_buffer.speech_started`. The local gate triggers barge-in.
@@ -124,7 +124,7 @@ push(frame):
 ## Config (`config.ts`)
 
 ```ts
-export type VadEngine = "webrtc_fvad" | "rms" | "off";   // default: off
+export type VadEngine = "fvad" | "rms" | "server";   // default: server
 export type VadMode = "normal" | "low_bitrate" | "aggressive" | "very_aggressive";
 export interface VadSettings { engine; mode; onsetMs; hangoverMs; prefillMs; commitResponse; }
 export interface VoiceSettings { ...; vad: VadSettings; }
@@ -157,18 +157,18 @@ Wrap each step in try/catch; the last failure triggers the RMS fallback plus a w
 8. fail-open: a scorer that throws → forwards everything, warns once.
 9. `RmsScorer`: calibration, dual threshold, speech vs silence.
 10. Loader: inject a factory that throws → returns `RmsScorer` + warning.
-11. `engine: "off"` → gate bypassed, byte-identical stream, zero events.
+11. `engine: "server"` → gate bypassed, byte-identical stream, zero events.
 
 ### Integration - `test/integration.test.ts`
 12. Bell + silence through a fake mic: appends, then commit, then `response.create`, in that order.
-13. `engine: "off"` → behaviour identical to today (regression).
+13. `engine: "server"` → behaviour identical to today (regression).
 14. Gate `speechStarted` → `player.stop()` (barge-in).
 15. Muted mic: nothing forwarded, no commit.
 16. Fallback path: injected loader fails → session stays alive, warning, audio flows.
 
 ### Session - `test/realtime-session.test.ts`
 17. `commit()` sends commit only when `ready`.
-18. `turn_detection: null` when `vad.engine != off`.
+18. `turn_detection: null` when `vad.engine != server`.
 19. Order `commit` → `response.create`.
 
 ---
@@ -223,5 +223,5 @@ code-side phases are cross-platform: Node, no microphone, no real-time server.
 The WASM scorer loads in Node on macOS and Linux. Capture with AEC
 (`parec`/`pacat` + `module-echo-cancel`) is Linux, so only F7 needs Linux.
 
-- **F2-F3 (code side, any Node):** ✔ Verified that `loadVad()` + `createScorer("webrtc_fvad")` return `WebRtcScorer` (no fallback), that `processBuffer` runs (silence → `SILENCE`, transitions to `VOICE`, zero `ERROR`), and that `dispose()` releases resources. Acoustic `VOICE` triggering **cannot** be validated with stationary synthetic signals (WebRTC VAD suppresses stationary tones and noise; it needs real speech transients).
+- **F2-F3 (code side, any Node):** ✔ Verified that `loadVad()` + `createScorer("fvad")` return `WebRtcScorer` (no fallback), that `processBuffer` runs (silence → `SILENCE`, transitions to `VOICE`, zero `ERROR`), and that `dispose()` releases resources. Acoustic `VOICE` triggering **cannot** be validated with stationary synthetic signals (WebRTC VAD suppresses stationary tones and noise; it needs real speech transients).
 - **F7 (Linux + llama.cpp):** `VOICE` triggering with real speech, commit point, barge-in, and acoustics. Pending.

@@ -21,9 +21,9 @@ The current implementation is:
 - **Payload:** GA `session.update` only. The beta dialect is removed.
 - **Audio:** PCM16LE mono 24 kHz, 20 ms frames. AEC via PulseAudio/PipeWire
   `module-echo-cancel`. Linux is required for the AEC path.
-- **Turn detection:** server VAD by default (`vad.engine: off`). When a client
+- **Turn detection:** server VAD by default (`vad.engine: server`). When a client
   engine is active, send `turn_detection: null` and drive the boundary in the
-  client. Engines: `webrtc_fvad` (libfvad WASM), `rms` fallback, `off`.
+  client. Engines: `fvad` (libfvad WASM), `rms` fallback, `server` (provider VAD).
 - **Delegation:** tools `background_agent` and `remain_silent`. A work request
   becomes a Pi turn `<realtime_delegation><input>...</input></realtime_delegation>`.
   Progress and result return as `[BACKEND]`, then `function_call_output`.

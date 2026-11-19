@@ -6,6 +6,8 @@
  * Run: node --test --experimental-strip-types ~/.pi/agent/extensions/voice/tests/integration.test.ts
  */
 import assert from "node:assert/strict";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { register } from "node:module";
 import { afterEach, beforeEach, test } from "node:test";
 
@@ -59,13 +61,23 @@ const theme = { fg: (_color: string, text: string) => text };
 const flush = () => new Promise((resolve) => setImmediate(resolve));
 
 let savedKey: string | undefined;
+let savedAgentDir: string | undefined;
+let agentDirTemp: string | undefined;
 beforeEach(() => {
 	savedKey = process.env.OPENAI_API_KEY;
 	process.env.OPENAI_API_KEY = "sk-test-redacted";
+	// Isolate config: point agentDir at an empty temp dir so the real stt.json is not read.
+	savedAgentDir = process.env.PI_CODING_AGENT_DIR;
+	agentDirTemp = mkdtempSync(`${tmpdir()}/pi-stt-test-`);
+	process.env.PI_CODING_AGENT_DIR = agentDirTemp;
 });
 afterEach(() => {
 	if (savedKey === undefined) delete process.env.OPENAI_API_KEY;
 	else process.env.OPENAI_API_KEY = savedKey;
+	if (savedAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
+	else process.env.PI_CODING_AGENT_DIR = savedAgentDir;
+	if (agentDirTemp) rmSync(agentDirTemp, { recursive: true, force: true });
+	agentDirTemp = undefined;
 });
 
 function setup(branch: any[] = [], overrides: Record<string, any> = {}) {

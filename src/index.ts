@@ -31,7 +31,7 @@ import {
 } from "./audio/vad.ts";
 import { ensurePreview, playPreviewFile } from "./previews.ts";
 import { openEchoAudio, EchoCleanup, type EchoAudio } from "./echo.ts";
-import { VOICES, VAD_ENGINES, VAD_MODES, loadConfig, saveConfig, activeProvider, activeProviderName, resolveProvider, listAvailableProviders, type SttConfig, type SttEntry, type VoiceName } from "./config.ts";
+import { VOICES, VAD_ENGINES, VAD_MODES, loadConfig, saveConfig, activeProvider, activeProviderName, resolveProvider, listAvailableProviders, normalizeVadEngine, type SttConfig, type SttEntry, type VoiceName } from "./config.ts";
 import {
 	HANDOFF_COMPLETE_ACK,
 	STEER_ACK,
@@ -84,7 +84,7 @@ export default function (pi: ExtensionAPI, overrides: Partial<VoiceDeps> = {}) {
 	/** VAD gate for the current session (null when the engine is off). */
 	let gate: SpeechGate | undefined;
 	/** Label for `/stt-live status`: `<engine> · <wasm status>`. */
-	let vadLabel = "off";
+	let vadLabel = "server";
 	let echoAudio: EchoAudio | undefined;
 	const echoCleanup = new EchoCleanup();
 	let muted = false;
@@ -196,7 +196,7 @@ export default function (pi: ExtensionAPI, overrides: Partial<VoiceDeps> = {}) {
 		player = undefined;
 		gate?.dispose();
 		gate = undefined;
-		vadLabel = "off";
+		vadLabel = "server";
 		const oldEcho = echoAudio;
 		echoAudio = undefined;
 		if (oldEcho) echoCleanup.add(oldEcho);
@@ -272,7 +272,7 @@ export default function (pi: ExtensionAPI, overrides: Partial<VoiceDeps> = {}) {
 		outSchedule = [];
 		playhead = 0;
 		gate = undefined;
-		vadLabel = "off";
+		vadLabel = "server";
 
 		if (ctx.mode === "tui") {
 			ctx.ui.setWidget(WIDGET_KEY, createVoiceWidget(() => ({ ...view, takeMicLevel, outLevelAt })), {
@@ -341,8 +341,8 @@ export default function (pi: ExtensionAPI, overrides: Partial<VoiceDeps> = {}) {
 				},
 			});
 			vadLabel = scorer
-				? `${settings.vad.engine} · ${scorer.kind === "webrtc_fvad" ? "wasm" : "rms"}`
-				: "off";
+				? `${settings.vad.engine} · ${scorer.kind === "fvad" ? "wasm" : "rms"}`
+				: "server";
 			recorder = deps.createRecorder({
 				onFrame: (frame) => {
 					if (session !== current) return;
@@ -631,8 +631,8 @@ export default function (pi: ExtensionAPI, overrides: Partial<VoiceDeps> = {}) {
 						ctx.ui.notify(`vad mode set to ${mode} - applies to the next session`, "info");
 						return;
 					}
-					const engine = arg as VadEngine;
-					if (!VAD_ENGINES.includes(engine)) {
+					const engine = normalizeVadEngine(arg);
+					if (!engine) {
 						ctx.ui.notify(`vad engine must be: ${VAD_ENGINES.join(", ")}`, "warning");
 						return;
 					}

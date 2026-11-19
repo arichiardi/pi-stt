@@ -197,7 +197,7 @@ test("fail-open: pontuador que lanca => encaminha tudo, avisa uma vez", () => {
 });
 
 test("motor off: passa-tudo, zero eventos, stream byte-identico", async () => {
-	const scorer = await createScorer("off", "aggressive");
+	const scorer = await createScorer("server", "aggressive");
 	assert.equal(scorer, null);
 	const gate = new SpeechGate({ scorer: null, onsetMs: 40, hangoverMs: 100, prefillMs: 0 });
 	const input = [markerFrame(0), markerFrame(1), markerFrame(2)];
@@ -220,7 +220,7 @@ test("createScorer rms devolve RmsScorer; loader que lanca cai para RMS com avis
 	const boom = async () => {
 		throw new Error("no wasm");
 	};
-	const primary = await createScorer("webrtc_fvad", "aggressive", (m) => (warned = m), boom);
+	const primary = await createScorer("fvad", "aggressive", (m) => (warned = m), boom);
 	assert.equal(primary?.kind, "rms", "fallback RMS quando o loader lanca");
 	assert.match(warned, /WASM/);
 });

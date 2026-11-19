@@ -48,7 +48,7 @@ export interface PushResult {
 
 /** One frame already resampled to the VAD rate (PCM16LE mono, `VAD_SAMPLES` samples). */
 export interface FrameScorer {
-	readonly kind: Exclude<VadEngine, "off">;
+	readonly kind: Exclude<VadEngine, "server">;
 	/** true when the frame contains speech. Must be sync and fast. */
 	score(frame16: Buffer): boolean;
 	dispose?(): void;
@@ -132,7 +132,7 @@ export class RmsScorer implements FrameScorer {
  * never rebuilt per frame. `dispose()` frees the WASM when exposed.
  */
 export class WebRtcScorer implements FrameScorer {
-	readonly kind = "webrtc_fvad" as const;
+	readonly kind = "fvad" as const;
 	private readonly vad: { processBuffer(buffer: Buffer | ArrayBufferView): number };
 	private readonly voiceTag: number;
 	readonly counters = { voiced: 0, silence: 0, error: 0 };
@@ -191,7 +191,7 @@ export async function createScorer(
 	onWarn: (message: string) => void = () => {},
 	loader: () => Promise<any> = loadVadModule,
 ): Promise<FrameScorer | null> {
-	if (engine === "off") return null;
+	if (engine === "server") return null;
 	if (engine === "rms") return new RmsScorer();
 	try {
 		const mod = await loader();
@@ -222,7 +222,7 @@ export interface SpeechGateOptions {
  * 10 ms sub-frames at 16 kHz. Forwards whole frames, byte identical. Emits
  * `speechStarted` with the pre-roll and `speechEnded` once. `push()` never
  * throws: a scorer exception turns on fail-open (forward everything, warn once).
- * The `off` engine (null scorer) is a pass-through with no events.
+ * The `server` engine (null scorer) is a pass-through with no events.
  */
 export class SpeechGate {
 	readonly onsetFrames: number;
@@ -266,7 +266,7 @@ export class SpeechGate {
 
 	/** Labels a capture frame: any 10 ms sub-frame with speech means voiced. */
 	private label(pcm24: Buffer): boolean {
-		if (!this.scorer) return true; // engine off: not used (pass-through branch)
+		if (!this.scorer) return true; // engine server: not used (pass-through branch)
 		const pcm16 = this.resample(pcm24);
 		const bytesPerSub = (pcm16.length / this.subFramesPerCapture) | 0;
 		let voiced = false;
@@ -279,7 +279,7 @@ export class SpeechGate {
 
 	push(captureFrame: Buffer): PushResult {
 		if (this.failOpen) return { frames: [captureFrame], events: [] };
-		if (!this.scorer) return { frames: [captureFrame], events: [] }; // engine off
+		if (!this.scorer) return { frames: [captureFrame], events: [] }; // engine server
 
 		let label: boolean;
 		try {

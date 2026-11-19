@@ -85,7 +85,7 @@ variables are for temporary use or CI.
   "model": "gpt-realtime-2.1-mini",
   "muteOnStart": false,
   "vad": {
-    "engine": "off",
+    "engine": "server",
     "mode": "aggressive",
     "onsetMs": 60,
     "hangoverMs": 700,
@@ -129,9 +129,9 @@ Pick a `vad.engine`:
 
 | Engine | What it is | Cost |
 |---|---|---|
-| `webrtc_fvad` | WebRTC VAD (libfvad, GMM) through `@ozymandiasthegreat/vad` (WASM). The mobile/Android algorithm. | ~53 KB, no model download |
+| `fvad` | WebRTC VAD (libfvad, GMM) through `@ozymandiasthegreat/vad` (WASM). The mobile/Android algorithm. | ~53 KB, no model download |
 | `rms` | Pure-TypeScript RMS gate. The fallback. | zero extra dependency |
-| `off` | No client VAD. Server VAD is kept (OpenAI default). | none |
+| `server` | No client VAD. Server VAD is kept (OpenAI default). | none |
 
 The gate resamples 24 kHz capture to 16 kHz. It scores 10 ms frames. A turn
 opens after `onsetMs` of speech. It closes after `hangoverMs` of silence. That
@@ -151,10 +151,10 @@ it. `brew install libfvad` does not exist on macOS. The WASM path is used in
 production. AEC capture uses PulseAudio/PipeWire (`parec`/`pacat`) and is Linux,
 so validate VAD on Linux with `llama.cpp`. See `docs/plan-implementation.md`.
 
-Set a non-off engine to try it:
+Set a client engine to try it:
 
 ```json
-{ "vad": { "engine": "webrtc_fvad", "mode": "aggressive" } }
+{ "vad": { "engine": "fvad", "mode": "aggressive" } }
 ```
 
 ## Implementation notes (what and why)

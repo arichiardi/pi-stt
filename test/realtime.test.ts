@@ -71,7 +71,7 @@ test("payload V2 declara background_agent e remain_silent com os nomes da API", 
 });
 
 test("vad cliente ativo => turn_detection null; off => server_vad preservado", () => {
-	const client = { ...DEFAULT_PROVIDER, vad: { ...DEFAULT_PROVIDER.vad, engine: "webrtc_fvad" as const } };
+	const client = { ...DEFAULT_PROVIDER, vad: { ...DEFAULT_PROVIDER.vad, engine: "fvad" as const } };
 	assert.equal((buildSessionUpdate(client, "x") as any).session.audio.input.turn_detection, null);
 	const rms = { ...DEFAULT_PROVIDER, vad: { ...DEFAULT_PROVIDER.vad, engine: "rms" as const } };
 	assert.equal((buildSessionUpdate(rms, "x") as any).session.audio.input.turn_detection, null);
