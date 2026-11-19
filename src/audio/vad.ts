@@ -161,7 +161,8 @@ export class WebRtcScorer implements FrameScorer {
 
 /**
  * Loads `@ozymandiasthegreat/vad`. Tries the ESM import; falls back to
- * `createRequire` (the `src/socket.ts` pattern) against argv[1] and the executable.
+ * `createRequire` (the `src/socket.ts` pattern) against argv[1], the executable,
+ * their symlink targets, and the extension module URL.
  * Returns the raw namespace; never throws to the caller (the caller handles the failure).
  */
 export async function loadVadModule(): Promise<any> {
@@ -171,7 +172,25 @@ export async function loadVadModule(): Promise<any> {
 		// fall through to the fallbacks
 	}
 	const { createRequire } = await import("node:module");
-	const bases = [process.argv[1], process.execPath].filter((b): b is string => Boolean(b));
+	const { realpathSync } = await import("node:fs");
+	const { fileURLToPath } = await import("node:url");
+	const raw = [process.argv[1], process.execPath].filter((b): b is string => Boolean(b));
+	const bases: string[] = [];
+	for (const path of raw) {
+		bases.push(path);
+		try {
+			// Dereference the global bin symlink into the package where the module lives.
+			bases.push(realpathSync(path));
+		} catch {
+			// not a symlink; keep the raw path
+		}
+	}
+	// The extension module URL: pi's extensions node_modules is a sibling of pi's.
+	try {
+		bases.push(fileURLToPath(import.meta.url));
+	} catch {
+		// not an ES module context
+	}
 	let lastError: unknown;
 	for (const base of bases) {
 		try {
