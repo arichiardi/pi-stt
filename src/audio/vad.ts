@@ -17,7 +17,6 @@
  * Layout note: this file lives in `src/audio/vad.ts` next to
  * `src/audio.ts`. Both coexist; imports use an explicit `.ts` extension.
  */
-import { importDependency } from "../resolve.ts";
 
 import { SAMPLE_RATE, FRAME_MS, type VadEngine, type VadMode } from "../config.ts";
 import { rmsLevel, BYTES_PER_SAMPLE } from "../audio.ts";
@@ -161,13 +160,13 @@ export class WebRtcScorer implements FrameScorer {
 }
 
 /**
- * Loads `@ozymandiasthegreat/vad`. Tries the ESM import; falls back to
- * `createRequire` (the `src/socket.ts` pattern) against argv[1], the executable,
- * their symlink targets, and the extension module URL.
- * Returns the raw namespace; never throws to the caller (the caller handles the failure).
+ * Loads `@ozymandiasthegreat/vad` with a plain dynamic `import()`. jiti resolves
+ * the bare specifier from the extension's own node_modules. Returns the raw
+ * namespace; never throws to the caller (the caller handles the failure).
  */
 export async function loadVadModule(): Promise<any> {
-	return importDependency("@ozymandiasthegreat/vad");
+	// jiti resolves this bare specifier from the extension's own node_modules.
+	return await import("@ozymandiasthegreat/vad");
 }
 
 /** Builds a `FrameScorer` for the requested engine. WASM failure falls back to RMS. */

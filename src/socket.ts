@@ -10,7 +10,6 @@
  * swapping http(s) to ws(s) and appending /realtime?model=...
  */
 
-import { requireDependency } from "./resolve.ts";
 
 export type AuthMode = "header" | "ephemeral-subprotocol";
 export type SocketImpl = "ws" | "global-websocket";
@@ -50,14 +49,14 @@ type WsCtor = new (
 	options: { headers: Record<string, string> },
 ) => WsLike;
 
-/** Load `ws` via the shared resolver. */
-export function loadWs(): WsCtor | undefined {
+/** Load `ws` with a dynamic import. jiti resolves it from the extension's node_modules. */
+async function loadWs(): Promise<WsCtor | undefined> {
 	try {
-		const resolved = requireDependency("ws") as WsCtor | { default: WsCtor };
-		const ctor = (resolved as { default?: WsCtor }).default ?? (resolved as WsCtor);
-		if (typeof ctor === "function") return ctor;
+		const mod: any = await import("ws");
+		const ctor = mod?.default?.default ?? mod?.default ?? mod?.WebSocket ?? mod;
+		if (typeof ctor === "function") return ctor as WsCtor;
 	} catch {
-		// ws is unavailable; the caller falls back to the global WebSocket
+		// ws is not installed; the caller falls back to the global WebSocket
 	}
 	return undefined;
 }
@@ -129,7 +128,7 @@ export interface OpenSocketOptions {
 
 export async function openRealtimeSocket(options: OpenSocketOptions): Promise<VoiceSocket> {
 	const url = wsUrlFromBase(options.baseUrl, options.model);
-	const Ws = loadWs();
+	const Ws = await loadWs();
 	const dialect = options.dialect ?? "ga";
 
 	if (Ws) {
