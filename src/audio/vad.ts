@@ -221,7 +221,7 @@ export async function createScorer(
 		const voiceTag = mod.VADEvent?.VOICE ?? 2;
 		return new WebRtcScorer(vad, voiceTag);
 	} catch (error) {
-		onWarn(`VAD: WASM indisponivel (${(error as Error).message}); usando gate RMS`);
+		onWarn(`VAD: WASM unavailable (${(error as Error).message}); using the RMS gate`);
 		return new RmsScorer();
 	}
 }
