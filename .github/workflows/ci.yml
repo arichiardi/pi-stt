@@ -9,25 +9,14 @@ permissions:
   contents: read
 
 jobs:
-  unit:
-    name: unit tests (blocking)
+  test:
+    name: tests (blocking)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-      - run: npm run test:unit
-
-  integration:
-    # Pending: tests/integration.test.ts expects dependency injection in index.ts
-    # that does not exist yet. Remove continue-on-error once the seam is implemented.
-    name: integration (non-blocking, pending)
-    runs-on: ubuntu-latest
-    continue-on-error: true
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-      - run: node --test --experimental-strip-types tests/integration.test.ts
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test

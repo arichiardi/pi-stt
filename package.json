@@ -44,8 +44,6 @@
 		"extensions": [
 			"./src/index.ts"
 		],
-		"image": "https://raw.githubusercontent.com/IgorGuariroba/pi-voice-realtime/main/docs/media/preview.png",
-		"video": "https://raw.githubusercontent.com/IgorGuariroba/pi-voice-realtime/main/docs/media/demo.mp4",
 		"changelog": "https://github.com/arichiardi/pi-stt/blob/main/CHANGELOG.md"
 	},
 	"dependencies": {

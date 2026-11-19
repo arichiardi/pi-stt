@@ -29,12 +29,6 @@ can transcribe on demand, not only in a live session.
 - **Later:** transcription agent tools - transcribe a file, a voice note, or a
   meeting on demand, outside a live session.
 
-## Demo
-
-[![Voice conversation in Pi, with transcript and audio meters](https://raw.githubusercontent.com/IgorGuariroba/pi-voice-realtime/main/docs/media/preview.png)](https://raw.githubusercontent.com/IgorGuariroba/pi-voice-realtime/main/docs/media/demo.mp4)
-
-[Watch the demo (MP4, 20 seconds, no audio)](https://raw.githubusercontent.com/IgorGuariroba/pi-voice-realtime/main/docs/media/demo.mp4).
-
 ## Install
 
 Requirements:
