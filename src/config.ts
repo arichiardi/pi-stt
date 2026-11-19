@@ -131,11 +131,15 @@ export interface SttEntry {
 	model: string;
 	/** Voice spoken by the realtime model. Provider-specific (e.g. OpenAI voices, female/male). */
 	voice: string;
-	/**
-	 * Voices this provider accepts. When set, the picker and validation use it.
-	 * When absent, the OpenAI VOICES catalog is the default.
-	 */
+	/** Voices this provider accepts. When set, the picker and validation use it.
+	 * When absent, the OpenAI VOICES catalog is the default. */
 	voices?: string[];
+	/**
+	 * Spoken output language (BCP-47, e.g. "en"). Sent as audio.output.language.
+	 * llama.cpp/LFM3 uses it to pick the reply language. When absent, it is not sent
+	 * (OpenAI derives the language itself).
+	 */
+	language?: string;
 	/** Client-side VAD settings. */
 	vad: VadSettings;
 	/** Start muted (f9 unmutes). */
@@ -204,6 +208,7 @@ export function loadConfig(): SttConfig {
 				model: e.model || DEFAULT_PROVIDER.model,
 				voice,
 				...(voices ? { voices } : {}),
+				...(typeof e.language === "string" && e.language ? { language: e.language } : {}),
 				vad: normalizeVad(e.vad),
 				muteOnStart: typeof e.muteOnStart === "boolean" ? e.muteOnStart : false,
 			};

@@ -94,6 +94,7 @@ the model, voice, an optional provider `voices` list, and VAD.
       "model": "liquid/LFM3-Omni-2B",
       "voice": "female",
       "voices": ["female", "male"],
+      "language": "en",
       "vad": { "engine": "fvad" }
     }
   }
@@ -103,6 +104,11 @@ the model, voice, an optional provider `voices` list, and VAD.
 `voices` is the list the provider accepts. `/stt-settings voice` shows it. When
 absent, the OpenAI voice catalog is the default. The voice preview (↑↓) is
 OpenAI-only; other providers show it as text.
+
+`language` is the spoken reply language (BCP-47: `en`, `pt`, `es`, `zh`, ...).
+It is sent as `audio.output.language` and `audio.input.transcription.language`.
+llama.cpp/LFM3 uses it to pick the reply language; OpenAI derives it and the
+field is omitted when unset. Set it with `/stt-settings language <code>`.
 
 The current AEC path uses the default PulseAudio/PipeWire devices. Explicit ALSA
 devices are rejected so playback cannot bypass the echo reference.

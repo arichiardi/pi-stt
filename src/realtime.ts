@@ -128,7 +128,7 @@ export function buildSessionUpdate(
 				input: {
 					format: { type: "audio/pcm", rate: PCM_RATE },
 					noise_reduction: { type: "near_field" },
-					transcription: { model: INPUT_TRANSCRIPTION_MODEL },
+					transcription: { model: INPUT_TRANSCRIPTION_MODEL, ...(settings.language ? { language: settings.language } : {}) },
 					// Active client VAD => the server detects no boundaries. Without this,
 					// server_vad + client commit create double boundaries (R2).
 					turn_detection: settings.vad && settings.vad.engine !== "server" ? null : {
@@ -138,7 +138,11 @@ export function buildSessionUpdate(
 						silence_duration_ms: 500,
 					},
 				},
-				output: { format: { type: "audio/pcm", rate: PCM_RATE }, voice: settings.voice },
+				output: {
+					format: { type: "audio/pcm", rate: PCM_RATE },
+					voice: settings.voice,
+					...(settings.language ? { language: settings.language } : {}),
+				},
 			},
 			tools: [
 				{

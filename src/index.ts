@@ -572,6 +572,7 @@ export default function (pi: ExtensionAPI, overrides: Partial<VoiceDeps> = {}) {
 		return [
 			`provider: ${providerName}`,
 			`voice: ${settings.voice}`,
+			`language: ${settings.language ?? "(auto)"}`,
 			`model: ${settings.model}`,
 			`vad: ${v.engine} · mode: ${v.mode} · onset ${v.onsetMs}ms · hangover ${v.hangoverMs}ms · prefill ${v.prefillMs}ms`,
 		];
@@ -580,9 +581,9 @@ export default function (pi: ExtensionAPI, overrides: Partial<VoiceDeps> = {}) {
 	// ------------------------------------------------------------------ settings
 
 	pi.registerCommand("stt-settings", {
-		description: "Voice settings: show | voice | model <id> | vad [engine|mode <m>] | provider",
+		description: "Voice settings: show | voice | language <code> | model <id> | vad [engine|mode <m>] | provider",
 		getArgumentCompletions: (prefix) =>
-			["voice", "model", "vad", "provider"].filter((o) => o.startsWith(prefix)).map((o) => ({ value: o, label: o })),
+			["voice", "language", "model", "vad", "provider"].filter((o) => o.startsWith(prefix)).map((o) => ({ value: o, label: o })),
 		handler: async (args, ctx) => {
 			const parts = (args || "").trim().split(/\s+/);
 			const sub = (parts[0] || "").toLowerCase();
@@ -591,7 +592,7 @@ export default function (pi: ExtensionAPI, overrides: Partial<VoiceDeps> = {}) {
 			switch (sub) {
 				case "": {
 					ctx.ui.notify(
-						[...settingsLines(), "", "use: voice | model <id> | vad <engine> | vad mode <mode> | provider"].join("\n"),
+						[...settingsLines(), "", "use: voice | language <code> | model <id> | vad <engine> | vad mode <mode> | provider"].join("\n"),
 						"info",
 					);
 					return;
@@ -601,6 +602,19 @@ export default function (pi: ExtensionAPI, overrides: Partial<VoiceDeps> = {}) {
 					if (!choice) return;
 					updateProvider({ voice: choice });
 					ctx.ui.notify(`voice set to ${choice} - applies to the next session`, "info");
+					return;
+				}
+				case "language": {
+					if (!rest) {
+						ctx.ui.notify(
+							`language: ${settings.language ?? "(auto)"}\nuse: /stt-settings language <code> (e.g. en, pt, es, zh)\ncode list: ar da de el en es fi fr he it ja ko nl pl pt sv tr zh`,
+							"info",
+						);
+						return;
+					}
+					const code = rest.toLowerCase();
+					updateProvider({ language: code });
+					ctx.ui.notify(`language set to ${code} - applies to the next session`, "info");
 					return;
 				}
 				case "model": {
@@ -650,7 +664,7 @@ export default function (pi: ExtensionAPI, overrides: Partial<VoiceDeps> = {}) {
 					return;
 				}
 				default:
-					ctx.ui.notify(`/stt-settings ${sub}: use voice, model, vad, provider, or run /stt-settings to show`, "warning");
+					ctx.ui.notify(`/stt-settings ${sub}: use voice, language, model, vad, provider, or run /stt-settings to show`, "warning");
 			}
 		},
 	});

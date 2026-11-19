@@ -82,6 +82,14 @@ test("default model prioritizes cost-effectiveness", () => {
 	assert.equal(DEFAULT_PROVIDER.model, "gpt-realtime-2.1-mini");
 });
 
+test("session update: language omitted by default, sent as output+transcription when set", () => {
+	const noLang = buildSessionUpdate(DEFAULT_PROVIDER, "x") as any;
+	assert.equal(noLang.session.audio.output.language, undefined);
+	const withLang = buildSessionUpdate({ ...DEFAULT_PROVIDER, language: "en" }, "x") as any;
+	assert.equal(withLang.session.audio.output.language, "en");
+	assert.equal(withLang.session.audio.input.transcription.language, "en");
+});
+
 test("instructions: backend prompt, with startup context when present", () => {
 	const prompt = backendPrompt("Igor");
 	assert.ok(prompt.startsWith("## Identity, tone, and role"));
