@@ -17,6 +17,7 @@
  * Layout note: this file lives in `src/audio/vad.ts` next to
  * `src/audio.ts`. Both coexist; imports use an explicit `.ts` extension.
  */
+import { importDependency } from "../resolve.ts";
 
 import { SAMPLE_RATE, FRAME_MS, type VadEngine, type VadMode } from "../config.ts";
 import { rmsLevel, BYTES_PER_SAMPLE } from "../audio.ts";
@@ -166,41 +167,7 @@ export class WebRtcScorer implements FrameScorer {
  * Returns the raw namespace; never throws to the caller (the caller handles the failure).
  */
 export async function loadVadModule(): Promise<any> {
-	try {
-		return await import("@ozymandiasthegreat/vad");
-	} catch {
-		// fall through to the fallbacks
-	}
-	const { createRequire } = await import("node:module");
-	const { realpathSync } = await import("node:fs");
-	const { fileURLToPath } = await import("node:url");
-	const raw = [process.argv[1], process.execPath].filter((b): b is string => Boolean(b));
-	const bases: string[] = [];
-	for (const path of raw) {
-		bases.push(path);
-		try {
-			// Dereference the global bin symlink into the package where the module lives.
-			bases.push(realpathSync(path));
-		} catch {
-			// not a symlink; keep the raw path
-		}
-	}
-	// The extension module URL: pi's extensions node_modules is a sibling of pi's.
-	try {
-		bases.push(fileURLToPath(import.meta.url));
-	} catch {
-		// not an ES module context
-	}
-	let lastError: unknown;
-	for (const base of bases) {
-		try {
-			const req = createRequire(base);
-			return req("@ozymandiasthegreat/vad");
-		} catch (error) {
-			lastError = error;
-		}
-	}
-	throw new Error(`VAD module not found: ${(lastError as Error)?.message ?? "import failed"}`);
+	return importDependency("@ozymandiasthegreat/vad");
 }
 
 /** Builds a `FrameScorer` for the requested engine. WASM failure falls back to RMS. */

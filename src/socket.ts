@@ -10,9 +10,7 @@
  * swapping http(s) to ws(s) and appending /realtime?model=...
  */
 
-import { createRequire } from "node:module";
-import { realpathSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { requireDependency } from "./resolve.ts";
 
 export type AuthMode = "header" | "ephemeral-subprotocol";
 export type SocketImpl = "ws" | "global-websocket";
@@ -52,33 +50,14 @@ type WsCtor = new (
 	options: { headers: Record<string, string> },
 ) => WsLike;
 
-/** Load `ws` from a resolvable node_modules (pi global install is a bin symlink). */
+/** Load `ws` via the shared resolver. */
 export function loadWs(): WsCtor | undefined {
-	const raw = [process.argv[1], process.execPath].filter(Boolean) as string[];
-	const candidates: string[] = [];
-	for (const path of raw) {
-		candidates.push(path);
-		try {
-			// Dereference the global bin symlink into the package where ws lives.
-			candidates.push(realpathSync(path));
-		} catch {
-			// not a symlink; keep the raw path
-		}
-	}
-	// The extension module URL: pi's extensions node_modules is a sibling of pi's.
 	try {
-		candidates.push(fileURLToPath(import.meta.url));
+		const resolved = requireDependency("ws") as WsCtor | { default: WsCtor };
+		const ctor = (resolved as { default?: WsCtor }).default ?? (resolved as WsCtor);
+		if (typeof ctor === "function") return ctor;
 	} catch {
-		// not an ES module context
-	}
-	for (const candidate of candidates) {
-		try {
-			const resolved = createRequire(candidate)("ws") as WsCtor | { default: WsCtor };
-			const ctor = (resolved as { default?: WsCtor }).default ?? (resolved as WsCtor);
-			if (typeof ctor === "function") return ctor;
-		} catch {
-			// try the next one
-		}
+		// ws is unavailable; the caller falls back to the global WebSocket
 	}
 	return undefined;
 }
