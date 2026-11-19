@@ -110,6 +110,11 @@ It is sent as `audio.output.language` and `audio.input.transcription.language`.
 llama.cpp/LFM3 uses it to pick the reply language; OpenAI derives it and the
 field is omitted when unset. Set it with `/stt-settings language <code>`.
 
+`prompt` replaces the system instructions sent to the model for that provider
+(the default is the backend agent prompt + realtime persona). Use a short
+provider persona; the startup context is appended. With a custom `prompt` you
+must re-add the `background_agent` delegation guidance if you want delegation.
+
 The current AEC path uses the default PulseAudio/PipeWire devices. Explicit ALSA
 devices are rejected so playback cannot bypass the echo reference.
 

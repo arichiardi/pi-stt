@@ -140,6 +140,12 @@ export interface SttEntry {
 	 * (OpenAI derives the language itself).
 	 */
 	language?: string;
+	/**
+	 * System instructions sent to the realtime model. When set, it replaces the
+	 * built-in backend prompt + realtime persona for this provider. The startup
+	 * context is still appended. When absent, the default persona is used.
+	 */
+	prompt?: string;
 	/** Client-side VAD settings. */
 	vad: VadSettings;
 	/** Start muted (f9 unmutes). */
@@ -209,6 +215,7 @@ export function loadConfig(): SttConfig {
 				voice,
 				...(voices ? { voices } : {}),
 				...(typeof e.language === "string" && e.language ? { language: e.language } : {}),
+				...(typeof e.prompt === "string" && e.prompt.trim() ? { prompt: e.prompt } : {}),
 				vad: normalizeVad(e.vad),
 				muteOnStart: typeof e.muteOnStart === "boolean" ? e.muteOnStart : false,
 			};

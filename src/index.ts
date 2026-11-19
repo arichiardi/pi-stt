@@ -286,10 +286,11 @@ export default function (pi: ExtensionAPI, overrides: Partial<VoiceDeps> = {}) {
 		setStatus(ctx);
 
 		// realtime_start goes in `instructions` (V2); the API rejects a `developer` item.
-		const instructions = buildInstructions(
-			`${backendPrompt(process.env.USER || process.env.USERNAME)}\n\n${START_INSTRUCTIONS}`,
-			buildStartupContext(ctx.sessionManager.getBranch(), ctx.cwd),
-		);
+		// A provider `prompt` replaces the built-in persona; startup context is appended.
+		const basePrompt = settings.prompt?.trim()
+			? settings.prompt.trim()
+			: `${backendPrompt(process.env.USER || process.env.USERNAME)}\n\n${START_INSTRUCTIONS}`;
+		const instructions = buildInstructions(basePrompt, buildStartupContext(ctx.sessionManager.getBranch(), ctx.cwd));
 		const current = new RealtimeSession({
 			apiKey: resolved.apiKey,
 			baseUrl: resolved.baseUrl,
@@ -574,6 +575,7 @@ export default function (pi: ExtensionAPI, overrides: Partial<VoiceDeps> = {}) {
 			`voice: ${settings.voice}`,
 			`language: ${settings.language ?? "(auto)"}`,
 			`model: ${settings.model}`,
+			`prompt: ${settings.prompt?.trim() ? `custom (${settings.prompt.trim().length} chars)` : "(default persona)"}`,
 			`vad: ${v.engine} · mode: ${v.mode} · onset ${v.onsetMs}ms · hangover ${v.hangoverMs}ms · prefill ${v.prefillMs}ms`,
 		];
 	}

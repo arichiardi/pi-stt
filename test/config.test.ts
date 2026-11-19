@@ -53,10 +53,12 @@ test("loadConfig keeps voice in list, falls back to first when absent", () => {
 	try {
 		process.env.PI_CODING_AGENT_DIR = dir;
 		mkdirSync(join(dir, "ar-llm"), { recursive: true });
-		writeFileSync(join(dir, "ar-llm", "stt.json"), JSON.stringify({ providers: { p: { model: "m", voice: "nope", voices: ["female", "male"] } } }));
+		writeFileSync(join(dir, "ar-llm", "stt.json"), JSON.stringify({ providers: { p: { model: "m", voice: "nope", voices: ["female", "male"], language: "en", prompt: "  Be terse.  " } } }));
 		const cfg = loadConfig();
 		assert.deepEqual(cfg.providers.p!.voices, ["female", "male"]);
 		assert.equal(cfg.providers.p!.voice, "female");
+		assert.equal(cfg.providers.p!.language, "en");
+		assert.equal(cfg.providers.p!.prompt, "  Be terse.  ");
 	} finally {
 		if (prev === undefined) delete process.env.PI_CODING_AGENT_DIR;
 		else process.env.PI_CODING_AGENT_DIR = prev;
