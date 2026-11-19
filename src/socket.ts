@@ -11,6 +11,8 @@
  */
 
 import { createRequire } from "node:module";
+import { realpathSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 
 export type AuthMode = "header" | "ephemeral-subprotocol";
 export type SocketImpl = "ws" | "global-websocket";
@@ -50,9 +52,25 @@ type WsCtor = new (
 	options: { headers: Record<string, string> },
 ) => WsLike;
 
-/** Load `ws` from the pi node_modules. */
+/** Load `ws` from a resolvable node_modules (pi global install is a bin symlink). */
 export function loadWs(): WsCtor | undefined {
-	const candidates = [process.argv[1], process.execPath].filter(Boolean) as string[];
+	const raw = [process.argv[1], process.execPath].filter(Boolean) as string[];
+	const candidates: string[] = [];
+	for (const path of raw) {
+		candidates.push(path);
+		try {
+			// Dereference the global bin symlink into the package where ws lives.
+			candidates.push(realpathSync(path));
+		} catch {
+			// not a symlink; keep the raw path
+		}
+	}
+	// The extension module URL: pi's extensions node_modules is a sibling of pi's.
+	try {
+		candidates.push(fileURLToPath(import.meta.url));
+	} catch {
+		// not an ES module context
+	}
 	for (const candidate of candidates) {
 		try {
 			const resolved = createRequire(candidate)("ws") as WsCtor | { default: WsCtor };
@@ -156,8 +174,9 @@ export async function openRealtimeSocket(options: OpenSocketOptions): Promise<Vo
 	// Global WebSocket fallback: requires an ephemeral client secret (OpenAI only).
 	if (!isOpenAI(options.baseUrl)) {
 		throw new Error(
-			"ws module not available; this provider requires Authorization header auth. " +
-			"Install ws in pi's node_modules or use the /stt-live with a provider that supports header auth.",
+			"ws module not available. This provider needs Authorization header auth, " +
+			"which the global WebSocket cannot send. Update pi (it bundles ws), " +
+			"or use an OpenAI provider (ephemeral-key subprotocol auth).",
 		);
 	}
 
